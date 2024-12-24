@@ -34,13 +34,13 @@ class Cliente:
     def enviar(self, msg):
         self.socket.sendall(msg)
         data = self.socket.recv(1024)
-        print(f"[{self.socket.getsockname()}] Received: {data}")
+        print(f"[Client] Server response: {data}")
 
     def receber(self):
         chunks = []
         bytes_recd = 0
         while bytes_recd < MSGLEN:
-            chunk = self.sock.recv(min(MSGLEN - bytes_recd, 2048))
+            chunk = self.socket.recv(min(MSGLEN - bytes_recd, 2048))
             if chunk == b'':
                 raise RuntimeError("socket connection broken")
             chunks.append(chunk)
@@ -50,4 +50,4 @@ class Cliente:
 if __name__ == "__main__":
     c = Cliente()
     c.connect(socket.gethostname(), 8080)
-    c.enviar(b"Tentando conectar!")
+    c.enviar(b"Teste")

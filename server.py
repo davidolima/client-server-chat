@@ -5,7 +5,6 @@ import socket
 from typing import *
 
 ADDRESS = (socket.gethostname(), 8080)
-CONN_MSG = b"Success. Connected to server process."
 
 class Servidor():
     """
@@ -44,7 +43,7 @@ class Servidor():
         data = client_socket.recv(1024)
         if not data:
             return
-        self.log(f"Received: {data}")
+        self.log(f"Received {len(data)} bytes: {data}")
 
     def init(self):
         while True:
