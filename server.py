@@ -86,8 +86,11 @@ class Servidor():
             return
         self.sendPackageUsr(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
 
-    def removeUser(self, usr):
-        self.online_users.pop(usr)
+    def removeUser(self, usr_addr):
+        for k, v in self.online_users.items():
+            if v[1] == usr_addr:
+                self.online_users.pop(k)
+                break
 
     def getOnlineUsers(self):
         return list(self.online_users.keys())
@@ -136,6 +139,7 @@ class Servidor():
             self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
         finally:
             client_socket.close()
+            self.removeUser(client_addr)
             self.log(f" <<< {client_addr} disconnected.")
             self.log(f"Online users: {self.getOnlineUsers()}")
 

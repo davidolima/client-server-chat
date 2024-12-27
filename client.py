@@ -65,8 +65,7 @@ class Cliente:
 
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
         self.socket.sendall(enc_msg)
-
-        print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+        #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
 
     def receivePackage(self) -> tuple[MsgType, str,str,str]:
         """
@@ -143,7 +142,7 @@ class Cliente:
             if (self.dst is None):
                 #if not self.online_users:
                 #    self.online_users = self.serverRequest('getOnlineUsers', '')
-                usr = input(f"Escolha um usuário: ")
+                usr = input(f"[Escolha um usuário]: ")
                 if usr.startswith('\\'):
                     self.intepretCommand(usr)
                 self.dst = usr
