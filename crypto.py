@@ -46,6 +46,9 @@ class Criptografia:
          - [36-67] Nome de usuário de destino
          - [68-1024] Mensagem
         """
+        if len(data) < 1024:
+            while len(data) < 1024:
+                data += b'\00'
         decoded_msg = struct.unpack("@bb32sb32sb956s", data)
 
         mtype = decoded_msg[0]

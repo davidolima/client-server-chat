@@ -28,7 +28,6 @@ class Servidor():
     def _init_socket(self, address) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(address)
-        #s.setblocking(False)
         s.listen(self.max_connections);
         return s
 
@@ -60,6 +59,7 @@ class Servidor():
             return
 
         # Enviar msg
+        # Baseado em: https://docs.python.org/3/howto/sockets.html
         total_sent = 0
         while total_sent < len(msg):
             sent = client_socket.send(enc_msg[total_sent:])
@@ -86,30 +86,45 @@ class Servidor():
             return
         self.sendPackageUsr(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
 
-    def removeUser(self, usr):
-        self.online_users.pop(usr)
+    def removeUser(self, usr_addr):
+        for k, v in self.online_users.items():
+            if v[1] == usr_addr:
+                self.online_users.pop(k)
+                break
 
     def getOnlineUsers(self):
         return list(self.online_users.keys())
 
     def interpretServerRequest(self, src:str, cmd: str, options: str):
-        self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
+        #TODO
+        #self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
+        return
 
-    def interpretMessage(self, mtype: MsgType, src: str, dst: str, msg: str):
+    def interpretMessage(self, mtype: MsgType, src: str, dst: str | socket.socket, msg: str | Tuple[str, int]):
         match (mtype):
             case MsgType.CONNCT.value:
+                assert(type(src) == str and\
+                       type(dst) == socket.socket and\
+                       type(msg) == tuple)
                 self.addUser(src, socket=dst, addr=msg)
+
             case MsgType.DISCNT.value:
                 self.removeUser(src)
+
             case MsgType.FWDMSG.value:
+                assert(type(src) == str and type(dst) == str)
                 self.forwardMessage(src, dst, msg)
+
             case MsgType.SERVER.value:
+                assert(type(src) == str and type(dst) == str and type(msg) == str)
                 self.interpretServerRequest(src=src, cmd=dst, options=msg)
+
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
 
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
         print(f" >>> {client_addr} connected.")
+
         try:
             while True:
                 data = client_socket.recv(1024)
@@ -124,6 +139,7 @@ class Servidor():
             self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
         finally:
             client_socket.close()
+            self.removeUser(client_addr)
             self.log(f" <<< {client_addr} disconnected.")
             self.log(f"Online users: {self.getOnlineUsers()}")
 
