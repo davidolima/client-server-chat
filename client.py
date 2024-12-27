@@ -10,9 +10,11 @@ import socket
 import warnings
 from typing import *
 
+import threading
+
 from crypto import Criptografia, MsgType
 
-MSGLEN = 2048
+MSGLEN = 1024
 
 class Cliente:
     """
@@ -33,6 +35,8 @@ class Cliente:
         if not self.isConnected():
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((host, port))
+            # self.socket.setblocking(False)
+            # self.socket.settimeout(5)
             self.authenticate()
             return
         warnings.warn("Already connected!")
@@ -48,6 +52,18 @@ class Cliente:
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
+        msg_type, src, dst, server_msg = self.receivePackage()
+
+        print("Sending:", msg_type, src, dst, msg)
+        # Se a mensagem for enviada, printar no cliente
+        if msg_type == MsgType.ACCEPT.value:
+            print(f"{self.username}: {msg}")
+        elif msg_type == MsgType.ERRMSG.value:
+            print(f"Error while sending message `{msg[:min(len(msg), 10)]}...`: {server_msg}")
+        else:
+             # HACK: Caso o cliente receba uma mensagem antes da confirmação de sua mensagem
+            self.interpretMessage(msg_type, src, dst, server_msg)
+
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
         if not self.isConnected():
@@ -55,17 +71,34 @@ class Cliente:
             return
 
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
-        self.socket.sendall(enc_msg)
+        totalsent = 0
+        while totalsent < len(enc_msg):
+            sent = self.socket.send(enc_msg[totalsent:])
+            if sent == 0:
+                raise RuntimeError("socket connection broken")
+            totalsent = totalsent + sent
+
+        print(f"Sent {totalsent} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+        #self.socket.sendall(enc_msg)
 
     def receivePackage(self) -> tuple[MsgType, str,str,str]:
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
 
+        # chunks = []
+        # bytes_recd = 0
+        # while bytes_recd < MSGLEN:
+        #     chunk = self.socket.recv(1024)
+        #     if chunk == b'':
+        #         raise RuntimeError("socket connection broken")
+        #     chunks.append(chunk)
+        #     bytes_recd = bytes_recd + len(chunk)
+        # data = b''.join(chunks)
         data = self.socket.recv(1024)
-        if not data:
-            warnings.warn("No data received.")
-       # print(len(data), data)
+        #print(data)
+
+        #print(len(data), data)
         msg_type, src, dst, msg = Criptografia.decode_msg(data)
         return msg_type, src, dst, msg
 
@@ -101,13 +134,33 @@ class Cliente:
 
     def interpretMessage(self, mtype, src, dst, msg):
         match(mtype):
-            case MsgType.FWDMSG:
-                print(f" {src}: {msg}")
+            case MsgType.FWDMSG.value:
+                print(f"{src}: {msg}")
+            case MsgType.SERVER.value:
+                print(f"[SERVER] {msg}")
             case _:
                 pass
 
+    def start_receive_loop(self):
+        def receive_messages():
+            while self.isConnected():
+                try:
+                    msg_type, src, dst, msg = self.receivePackage()
+                    self.interpretMessage(msg_type, src, dst, msg)
+                    if msg_type == MsgType.ERRMSG:
+                        print(f"[ERROR] The server reported an error: {msg}")
+                        break
+                except Exception as e:
+                    print(f"Error receiving message: {e}")
+                    break
+            self.disconnect()
+
+        thread = threading.Thread(target=receive_messages, daemon=True)
+        thread.start()
+
     def start(self, server_addr, server_port):
         self.connect(server_addr, server_port)
+        self.start_receive_loop()
         while True:
             if (self.dst is None):
                 #if not self.online_users:
@@ -116,6 +169,7 @@ class Cliente:
                 self.dst = usr
             else:
                 msg = input(f"[{self.dst}] > ")
+                print('\033[1A' + '\033[K', end='')
                 self.intepretCommand(msg)
 
 if __name__ == "__main__":

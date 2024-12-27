@@ -2,10 +2,12 @@
 #  - criar um servidor para implementar as funcionalidades e requisitos do projeto
 
 import socket
-from typing import *
 import warnings
+import threading
+from typing import *
 
 from crypto import Criptografia, MsgType
+
 
 ADDRESS = (socket.gethostname(), 8080)
 
@@ -26,6 +28,7 @@ class Servidor():
     def _init_socket(self, address) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(address)
+        #s.setblocking(False)
         s.listen(self.max_connections);
         return s
 
@@ -36,36 +39,38 @@ class Servidor():
             print("[SERVER]", msg, **args)
 
     def forwardMessage(self, src, dst, msg):
-        self.log(f"Forwarding message: src: {src} dst: {dst} msg: {msg}")
+        if dst not in self.online_users:
+            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            return
+
+        #self.log(f"Forwarding message: src: {src} dst: {dst} msg: {msg}")
+        self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
         self.sendPackageUsr(MsgType.FWDMSG, src, dst, msg)
 
     def sendPackageUsr(self, msg_type: MsgType, src: str , dst: str, msg: str):
         if dst not in self.getOnlineUsers():
-            warnings.warn(f"{dst} can't be reached.")
+            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            return
+
         enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
 
         client_socket = self.getUserSocket(dst)
+        if client_socket._closed:
+            self.log(f"Socket for user `{dst}` is closed. Unable to forward message.", logtype='warn')
+            return
 
+        # Enviar msg
         total_sent = 0
         while total_sent < len(msg):
             sent = client_socket.send(enc_msg[total_sent:])
             if sent == 0:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
-        self.log(f"{src} -> {dst} ({len(msg)} bytes) {msg}")
+        self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
 
-    def sendToAll(self, msg_type: MsgType, src: str , dst: str, msg: str):
-        if dst not in self.getOnlineUsers():
-            warnings.warn(f"{dst} can't be reached.")
-        enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
-
-        total_sent = 0
-        while total_sent < len(msg):
-            sent = self.socket.send(enc_msg[total_sent:])
-            if sent == 0:
-                raise RuntimeError("Socket connection broken.")
-            total_sent += sent
-        self.log(f"[{src} -> {dst}] ({len(msg)} bytes): {msg}")
+    def sendToAll(self, msg_type: MsgType, src: str, msg: str):
+        for usr in self.online_users.keys():
+            self.sendPackageUsr(msg_type, src, usr, msg)
 
     def getUserSocket(self, usr):
         return self.online_users[usr][0]
@@ -97,7 +102,6 @@ class Servidor():
             case MsgType.DISCNT.value:
                 self.removeUser(src)
             case MsgType.FWDMSG.value:
-                self.log("FWDMSG")
                 self.forwardMessage(src, dst, msg)
             case MsgType.SERVER.value:
                 self.interpretServerRequest(src=src, cmd=dst, options=msg)
@@ -105,21 +109,34 @@ class Servidor():
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
 
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
-        print(f" >>> {client_addr} connected")
-        data = client_socket.recv(1024)
-        if not data:
-            return
-        mtype, src, dst, msg = Criptografia.decode_msg(data)
-        if mtype == MsgType.CONNCT.value:
-            self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
-        else:
-            self.interpretMessage(mtype, src, dst, msg)
+        print(f" >>> {client_addr} connected.")
+        try:
+            while True:
+                data = client_socket.recv(1024)
+                if not data: return
+
+                mtype, src, dst, msg = Criptografia.decode_msg(data)
+                if mtype == MsgType.CONNCT.value:
+                    self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
+                else:
+                    self.interpretMessage(mtype, src, dst, msg)
+        except Exception as e:
+            self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
+        finally:
+            client_socket.close()
+            self.log(f" <<< {client_addr} disconnected.")
+            self.log(f"Online users: {self.getOnlineUsers()}")
 
     def start(self):
         while True:
             (c_socket, c_address) = self.socket.accept()
-            self.onClientConnect(c_socket, c_address)
-
+            #self.onClientConnect(c_socket, c_address)
+            client_thread = threading.Thread(
+                target=self.onClientConnect,
+                args=(c_socket, c_address),
+                daemon=True
+            )
+            client_thread.start()
 def main():
     serv = Servidor(ADDRESS)
     serv.start()

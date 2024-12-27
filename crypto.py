@@ -51,5 +51,6 @@ class Criptografia:
         mtype = decoded_msg[0]
         src = decoded_msg[2][:decoded_msg[1]].decode(encoding)
         dst = decoded_msg[4][:decoded_msg[3]].decode(encoding)
-        msg = decoded_msg[6][:decoded_msg[5]].decode(encoding)
+        msg = decoded_msg[6][:decoded_msg[5]+1].decode(encoding)
+
         return mtype, src, dst, msg
