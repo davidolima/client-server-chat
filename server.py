@@ -60,6 +60,7 @@ class Servidor():
             return
 
         # Enviar msg
+        # Baseado em: https://docs.python.org/3/howto/sockets.html
         total_sent = 0
         while total_sent < len(msg):
             sent = client_socket.send(enc_msg[total_sent:])
@@ -93,23 +94,35 @@ class Servidor():
         return list(self.online_users.keys())
 
     def interpretServerRequest(self, src:str, cmd: str, options: str):
-        self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
+        #TODO
+        #self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
+        return
 
-    def interpretMessage(self, mtype: MsgType, src: str, dst: str, msg: str):
+    def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | int, msg: str):
         match (mtype):
             case MsgType.CONNCT.value:
+                assert(type(src) == str and\
+                       type(dst) == socket.socket and\
+                       type(msg) == int)
                 self.addUser(src, socket=dst, addr=msg)
+
             case MsgType.DISCNT.value:
                 self.removeUser(src)
+
             case MsgType.FWDMSG.value:
+                assert(type(src) == str and type(dst) == str)
                 self.forwardMessage(src, dst, msg)
+
             case MsgType.SERVER.value:
+                assert(type(src) == str and type(dst) == str)
                 self.interpretServerRequest(src=src, cmd=dst, options=msg)
+
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
 
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
         print(f" >>> {client_addr} connected.")
+
         try:
             while True:
                 data = client_socket.recv(1024)

@@ -19,7 +19,6 @@ MSGLEN = 1024
 class Cliente:
     """
     Classe cliente.
-    Baseado em: https://docs.python.org/3/howto/sockets.html
     """
 
     def __init__(self):
@@ -29,26 +28,30 @@ class Cliente:
         self.online_users = []
 
     def isConnected(self) -> bool:
-        return not (self.socket is None)
+        return (self.socket is not None)
 
     def connect(self, host: str, port: int) -> None:
-        if not self.isConnected():
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.connect((host, port))
-            # self.socket.setblocking(False)
-            # self.socket.settimeout(5)
-            self.authenticate()
+        if self.isConnected():
+            warnings.warn("Already connected!")
             return
-        warnings.warn("Already connected!")
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setblocking(False)
+        self.socket.connect((host, port))
+        # self.socket.settimeout(5)
+        self.authenticate()
+
 
     def disconnect(self) -> None:
-        print("Disconnecting...")
-        if self.isConnected():
-            self.socket.shutdown(0)
-            self.socket.close()
-            print("Disconnected!")
+        if not self.isConnected():
+            warnings.warn("Attempted to disconnect without a connection.")
             return
-        warnings.warn("Attempted to disconnect without a connection.")
+        assert (self.socket is not None) # NOTE: Just so LSP works properly
+
+        print("Disconnecting...")
+        self.socket.shutdown(0)
+        self.socket.close()
+        print("Disconnected!")
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
@@ -66,9 +69,13 @@ class Cliente:
 
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
+        """
+        Baseado em: https://docs.python.org/3/howto/sockets.html
+        """
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return
+        assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
         totalsent = 0
@@ -82,20 +89,24 @@ class Cliente:
         #self.socket.sendall(enc_msg)
 
     def receivePackage(self) -> tuple[MsgType, str,str,str]:
+        """
+        Baseado em: https://docs.python.org/3/howto/sockets.html
+        """
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
+        assert(self.socket is not None)
 
-        # chunks = []
-        # bytes_recd = 0
-        # while bytes_recd < MSGLEN:
-        #     chunk = self.socket.recv(1024)
-        #     if chunk == b'':
-        #         raise RuntimeError("socket connection broken")
-        #     chunks.append(chunk)
-        #     bytes_recd = bytes_recd + len(chunk)
-        # data = b''.join(chunks)
-        data = self.socket.recv(1024)
+        chunks = []
+        bytes_recd = 0
+        while bytes_recd < 1024:
+            chunk = self.socket.recv(1024)
+            if chunk == b'':
+                raise RuntimeError("socket connection broken")
+            chunks.append(chunk)
+            bytes_recd = bytes_recd + len(chunk)
+        data = b''.join(chunks)
+        #data = self.socket.recv(1024)
         #print(data)
 
         #print(len(data), data)
@@ -106,6 +117,7 @@ class Cliente:
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return
+        assert(self.socket is not None) # NOTE: Just so LSP works properly
 
         print("Por favor, autentique-se:")
         username = input("Usuário: ")
