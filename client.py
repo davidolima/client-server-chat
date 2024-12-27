@@ -9,6 +9,7 @@
 import socket
 import struct
 from typing import *
+from threading import Thread
 
 MSGLEN = 2048
 
@@ -17,69 +18,77 @@ class Cliente:
     Classe cliente.
     Baseado em: https://docs.python.org/3/howto/sockets.html
     """
+    
 
-    def __init__(self):
+    def __init__(self, login):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connected = False
-
-    def connect(self, host, port):
-        if not self.connected:
-            self.socket.connect((host, port))
-            self.connected = True
-        return self.connected
+        self.socket.connect((socket.gethostname(), 8080))
+        self.login = login
 
     def disconnect(self):
         self.socket.shutdown(0)
         self.socket.close()
 
-    def enviar(self, msg):
-        self.socket.sendall(msg)
-        data = self.socket.recv(1024)
-        print(f"[Client] Server response: {data}")
+    def receive_msg(self):
+        while True:
+            server_msg = self.socket.recv(1024).decode()
+            if not server_msg.strip():
+                self.disconnect()
+            print("DESCONECTADO")
 
-    def receber(self):
-        chunks = []
-        bytes_recd = 0
-        while bytes_recd < MSGLEN:
-            chunk = self.socket.recv(min(MSGLEN - bytes_recd, 2048))
-            if chunk == b'':
-                raise RuntimeError("socket connection broken")
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-        return b''.join(chunks)
+    def send_msg(self):
+        dest = input("Enviar para: ")
+        while True:
+            client_msg = input("")
+            final_msg = f'{self.login}: {client_msg}'
+            msg_codificada = Cliente.encode_msg(dest, final_msg)       
 
+            self.socket.send(msg_codificada)
+
+            """
+            totalsent = 0
+            lenMsg = len(msg)
+            while totalsent < lenMsg:
+                sent = self.socket.send(msg[totalsent:])
+                if sent == 0:
+                    raise RuntimeError("socket connection broken")
+                totalsent = totalsent + sent
+            """
+    
+    def server_comunication(self):
+        self.socket.send(self.login.encode())
+        Thread(target = self.receive_msg).start()
+        self.send_msg()
+    
     @staticmethod
-    def encode_msg(src: str, dst: str, msg: str, encoding='utf-8') -> bytes:
-        bsrc = bytes(src, encoding)
+    def encode_msg(dst: str, msg: str, encoding='utf-8') -> bytes:
         bdst = bytes(dst, encoding)
         bmsg = bytes(msg, encoding)
         return struct.pack(
-            "@b32sb32sb957s",
-            len(src), bsrc,
+            "@b64sb957s",
             len(dst), bdst,
             len(msg), bmsg
         )
 
     @staticmethod
-    def decode_msg(data: bytes, encoding='utf-8') -> tuple[str, str, str]:
+    def decode_msg(data: bytes, encoding='utf-8') -> tuple[str, str]:
         """
         Decodifica uma mensagem em bytes:
          - [1] Tamanho do nome de usuário de origem
-         - [2-33] Nome de usuário de origem
-         - [34] Tamanho do nome de usuário de destino
-         - [35-66] Nome de usuário de destino
-         - [67-1024] Mensagem
+         - [2-64] Nome de usuário de origem
+         - [64-1024] Mensagem
         """
-        decoded_msg = struct.unpack("@b32sb32sb957s", data)
-        src = decoded_msg[1][:decoded_msg[0]].decode(encoding)
-        dst = decoded_msg[3][:decoded_msg[2]].decode(encoding)
-        msg = decoded_msg[5][:decoded_msg[4]].decode(encoding)
-        return src, dst, msg
+        decoded_msg = struct.unpack("@b64sb957s", data)
+        dst = decoded_msg[1][:decoded_msg[0]].decode(encoding)
+        msg = decoded_msg[3][:decoded_msg[2]].decode(encoding)
+        return dst, msg
+    
+def main():
+    print("Bem vindo! Para acessar o chat, digite:")
+    login = input("Login -> ") # Aqui provalmente terá uma validação
+    
+    client = Cliente(login)
+    client.server_comunication()
 
 if __name__ == "__main__":
-    c = Cliente()
-    c.connect(socket.gethostname(), 8080)
-
-    msg_pkt = Cliente.encode_msg("david", "leobino", "olá!")
-    print(msg_pkt, Cliente.decode_msg(msg_pkt))
-    c.enviar(msg_pkt)
+    main()
