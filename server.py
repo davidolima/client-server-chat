@@ -28,7 +28,6 @@ class Servidor():
     def _init_socket(self, address) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(address)
-        #s.setblocking(False)
         s.listen(self.max_connections);
         return s
 
@@ -98,12 +97,12 @@ class Servidor():
         #self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
         return
 
-    def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | int, msg: str):
+    def interpretMessage(self, mtype: MsgType, src: str, dst: str | socket.socket, msg: str | Tuple[str, int]):
         match (mtype):
             case MsgType.CONNCT.value:
                 assert(type(src) == str and\
                        type(dst) == socket.socket and\
-                       type(msg) == int)
+                       type(msg) == tuple)
                 self.addUser(src, socket=dst, addr=msg)
 
             case MsgType.DISCNT.value:
@@ -114,7 +113,7 @@ class Servidor():
                 self.forwardMessage(src, dst, msg)
 
             case MsgType.SERVER.value:
-                assert(type(src) == str and type(dst) == str)
+                assert(type(src) == str and type(dst) == str and type(msg) == str)
                 self.interpretServerRequest(src=src, cmd=dst, options=msg)
 
             case _:

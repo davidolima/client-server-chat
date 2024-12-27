@@ -36,11 +36,8 @@ class Cliente:
             return
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setblocking(False)
         self.socket.connect((host, port))
-        # self.socket.settimeout(5)
         self.authenticate()
-
 
     def disconnect(self) -> None:
         if not self.isConnected():
@@ -55,18 +52,7 @@ class Cliente:
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
-        msg_type, src, dst, server_msg = self.receivePackage()
-
-        print("Sending:", msg_type, src, dst, msg)
-        # Se a mensagem for enviada, printar no cliente
-        if msg_type == MsgType.ACCEPT.value:
-            print(f"{self.username}: {msg}")
-        elif msg_type == MsgType.ERRMSG.value:
-            print(f"Error while sending message `{msg[:min(len(msg), 10)]}...`: {server_msg}")
-        else:
-             # HACK: Caso o cliente receba uma mensagem antes da confirmação de sua mensagem
-            self.interpretMessage(msg_type, src, dst, server_msg)
-
+        print(f"{self.username}: {msg}")
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
         """
@@ -78,15 +64,9 @@ class Cliente:
         assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
-        totalsent = 0
-        while totalsent < len(enc_msg):
-            sent = self.socket.send(enc_msg[totalsent:])
-            if sent == 0:
-                raise RuntimeError("socket connection broken")
-            totalsent = totalsent + sent
+        self.socket.sendall(enc_msg)
 
-        print(f"Sent {totalsent} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
-        #self.socket.sendall(enc_msg)
+        print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
 
     def receivePackage(self) -> tuple[MsgType, str,str,str]:
         """
@@ -97,19 +77,8 @@ class Cliente:
             return (MsgType.ERRMSG, '', '', '')
         assert(self.socket is not None)
 
-        chunks = []
-        bytes_recd = 0
-        while bytes_recd < 1024:
-            chunk = self.socket.recv(1024)
-            if chunk == b'':
-                raise RuntimeError("socket connection broken")
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-        data = b''.join(chunks)
-        #data = self.socket.recv(1024)
+        data = self.socket.recv(1024)
         #print(data)
-
-        #print(len(data), data)
         msg_type, src, dst, msg = Criptografia.decode_msg(data)
         return msg_type, src, dst, msg
 
@@ -126,12 +95,8 @@ class Cliente:
         addr, port = self.socket.getsockname()
         self.sendPackage(MsgType.CONNCT, str(addr), str(port))
 
-        _, _, _, msg = self.receivePackage()
-        print(f"[Server] {msg}")
-
     def serverRequest(self, request, options):
         self.sendPackage(MsgType.SERVER, request, options)
-        _, _, _, msg = self.receivePackage()
         return msg
 
     def intepretCommand(self, cmd: str) -> None:
@@ -141,6 +106,7 @@ class Cliente:
                     self.dst = None
                 else: # Do programa (desconectar)
                     self.disconnect()
+                    quit()
         else:
             self.sendMessage(self.dst, cmd)
 
@@ -178,6 +144,8 @@ class Cliente:
                 #if not self.online_users:
                 #    self.online_users = self.serverRequest('getOnlineUsers', '')
                 usr = input(f"Escolha um usuário: ")
+                if usr.startswith('\\'):
+                    self.intepretCommand(usr)
                 self.dst = usr
             else:
                 msg = input(f"[{self.dst}] > ")
