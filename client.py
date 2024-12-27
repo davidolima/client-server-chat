@@ -7,8 +7,10 @@
 # - (OPCIONAL) clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
 
 import socket
-import struct
+import warnings
 from typing import *
+
+from crypto import Criptografia, MsgType
 
 MSGLEN = 2048
 
@@ -19,67 +21,103 @@ class Cliente:
     """
 
     def __init__(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connected = False
+        self.socket = None
+        self.username = "user"
+        self.dst = None
+        self.online_users = []
 
-    def connect(self, host, port):
-        if not self.connected:
+    def isConnected(self) -> bool:
+        return not (self.socket is None)
+
+    def connect(self, host: str, port: int) -> None:
+        if not self.isConnected():
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((host, port))
-            self.connected = True
-        return self.connected
+            self.authenticate()
+            return
+        warnings.warn("Already connected!")
 
-    def disconnect(self):
-        self.socket.shutdown(0)
-        self.socket.close()
+    def disconnect(self) -> None:
+        print("Disconnecting...")
+        if self.isConnected():
+            self.socket.shutdown(0)
+            self.socket.close()
+            print("Disconnected!")
+            return
+        warnings.warn("Attempted to disconnect without a connection.")
 
-    def enviar(self, msg):
-        self.socket.sendall(msg)
+    def sendMessage(self, dst, msg: str) -> None:
+        self.sendPackage(MsgType.FWDMSG, dst, msg)
+
+    def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
+        if not self.isConnected():
+            warnings.warn("Not connected to server.")
+            return
+
+        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
+        self.socket.sendall(enc_msg)
+
+    def receivePackage(self) -> tuple[MsgType, str,str,str]:
+        if not self.isConnected():
+            warnings.warn("Not connected to server.")
+            return (MsgType.ERRMSG, '', '', '')
+
         data = self.socket.recv(1024)
-        print(f"[Client] Server response: {data}")
+        if not data:
+            warnings.warn("No data received.")
+       # print(len(data), data)
+        msg_type, src, dst, msg = Criptografia.decode_msg(data)
+        return msg_type, src, dst, msg
 
-    def receber(self):
-        chunks = []
-        bytes_recd = 0
-        while bytes_recd < MSGLEN:
-            chunk = self.socket.recv(min(MSGLEN - bytes_recd, 2048))
-            if chunk == b'':
-                raise RuntimeError("socket connection broken")
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-        return b''.join(chunks)
+    def authenticate(self) -> None:
+        if not self.isConnected():
+            warnings.warn("Not connected to server.")
+            return
 
-    @staticmethod
-    def encode_msg(src: str, dst: str, msg: str, encoding='utf-8') -> bytes:
-        bsrc = bytes(src, encoding)
-        bdst = bytes(dst, encoding)
-        bmsg = bytes(msg, encoding)
-        return struct.pack(
-            "@b32sb32sb957s",
-            len(src), bsrc,
-            len(dst), bdst,
-            len(msg), bmsg
-        )
+        print("Por favor, autentique-se:")
+        username = input("Usuário: ")
+        self.username = username
 
-    @staticmethod
-    def decode_msg(data: bytes, encoding='utf-8') -> tuple[str, str, str]:
-        """
-        Decodifica uma mensagem em bytes:
-         - [1] Tamanho do nome de usuário de origem
-         - [2-33] Nome de usuário de origem
-         - [34] Tamanho do nome de usuário de destino
-         - [35-66] Nome de usuário de destino
-         - [67-1024] Mensagem
-        """
-        decoded_msg = struct.unpack("@b32sb32sb957s", data)
-        src = decoded_msg[1][:decoded_msg[0]].decode(encoding)
-        dst = decoded_msg[3][:decoded_msg[2]].decode(encoding)
-        msg = decoded_msg[5][:decoded_msg[4]].decode(encoding)
-        return src, dst, msg
+        addr, port = self.socket.getsockname()
+        self.sendPackage(MsgType.CONNCT, str(addr), str(port))
+
+        _, _, _, msg = self.receivePackage()
+        print(f"[Server] {msg}")
+
+    def serverRequest(self, request, options):
+        self.sendPackage(MsgType.SERVER, request, options)
+        _, _, _, msg = self.receivePackage()
+        return msg
+
+    def intepretCommand(self, cmd: str) -> None:
+        if cmd.startswith('\\'): # Comandos
+            if cmd == '\\q': # Sair
+                if self.dst is not None: # De conversas
+                    self.dst = None
+                else: # Do programa (desconectar)
+                    self.disconnect()
+        else:
+            self.sendMessage(self.dst, cmd)
+
+    def interpretMessage(self, mtype, src, dst, msg):
+        match(mtype):
+            case MsgType.FWDMSG:
+                print(f" {src}: {msg}")
+            case _:
+                pass
+
+    def start(self, server_addr, server_port):
+        self.connect(server_addr, server_port)
+        while True:
+            if (self.dst is None):
+                #if not self.online_users:
+                #    self.online_users = self.serverRequest('getOnlineUsers', '')
+                usr = input(f"Escolha um usuário: ")
+                self.dst = usr
+            else:
+                msg = input(f"[{self.dst}] > ")
+                self.intepretCommand(msg)
 
 if __name__ == "__main__":
     c = Cliente()
-    c.connect(socket.gethostname(), 8080)
-
-    msg_pkt = Cliente.encode_msg("david", "leobino", "olá!")
-    print(msg_pkt, Cliente.decode_msg(msg_pkt))
-    c.enviar(msg_pkt)
+    c.start(socket.gethostname(), 8080)
