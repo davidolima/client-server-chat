@@ -12,7 +12,6 @@ from crypto import Criptografia, MsgType
 ADDRESS = (socket.gethostname(), 8080)
 
 class Servidor():
-    Clients = []
     
     """
     Classe do servidor.
