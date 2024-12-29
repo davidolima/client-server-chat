@@ -1,20 +1,21 @@
 # TODO
-#  - conexao com o servidor para implementar as funcionalidades e requisitos do projeto
-
-# - cada cliente se comunica com o servidor, que gerenciara a comunicacao entre clientes
-# - cada cliente deve se cadastrar junto ao servidor como um usuario
-# - cada cliente deve poder se comunicar com outro cliente usando o nome de usuario (semelhante ao que ocorre no WhatsApp atraves do numero de telefone)
-# - (OPCIONAL) clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
+# [X] cada cliente se comunica com o servidor, que gerenciara a comunicacao entre clientes
+# [  ] cada cliente deve se cadastrar junto ao servidor como um usuario
+# [X] cada cliente deve poder se comunicar com outro cliente usando o nome de usuario (semelhante ao que ocorre no WhatsApp atraves do numero de telefone)
+# [  ] (OPCIONAL) clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
 
 import socket
 import warnings
 from typing import *
+from time import sleep
 
 import threading
 
 from crypto import Criptografia, MsgType
 
 MSGLEN = 1024
+RECONNECT_TRIES = 3
+RECONNECT_TIMEOUT = 5
 
 class Cliente:
     """
@@ -27,6 +28,9 @@ class Cliente:
         self.dst = None
         self.online_users = []
 
+        self.host: str = ''
+        self.port: int = -1
+
     def isConnected(self) -> bool:
         return (self.socket is not None)
 
@@ -35,8 +39,10 @@ class Cliente:
             warnings.warn("Already connected!")
             return
 
+        self.host, self.port = host, port
+
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((host, port))
+        self.socket.connect( (self.host, self.port) )
         self.authenticate()
 
     def disconnect(self) -> None:
@@ -45,10 +51,29 @@ class Cliente:
             return
         assert (self.socket is not None) # NOTE: Just so LSP works properly
 
-        print("Disconnecting...")
+        print("Desconectando...")
         self.socket.shutdown(0)
         self.socket.close()
-        print("Disconnected!")
+        print("Desconectado!")
+        quit(0)
+
+    def reconnect(self):
+        tries = RECONNECT_TRIES
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        while tries > 0:
+            print(f"({RECONNECT_TRIES-tries+1}/{RECONNECT_TRIES}) Tentando reconectar...", end=' ')
+            try:
+                self.socket.connect( (self.host, self.port) )
+                print("Reconectado!")
+                return
+            except socket.error as e:
+                print(f"Falha ao conectar. ({e})")
+                sleep( RECONNECT_TIMEOUT )
+                tries -= 1
+
+        print("Desconectado.")
+        quit(0)
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
@@ -64,8 +89,14 @@ class Cliente:
         assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
-        self.socket.sendall(enc_msg)
-        #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+        try:
+            self.socket.sendall(enc_msg)
+            #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+        except socket.error as e:
+            print(f"[!] Conexão perdida. ({e})")
+            print(f"[!] Tentando reconectar em {RECONNECT_TIMEOUT}s...")
+            sleep(RECONNECT_TIMEOUT)
+            self.reconnect()
 
     def receivePackage(self) -> tuple[MsgType, str,str,str]:
         """
@@ -96,7 +127,6 @@ class Cliente:
 
     def serverRequest(self, request, options):
         self.sendPackage(MsgType.SERVER, request, options)
-        return msg
 
     def intepretCommand(self, cmd: str) -> None:
         if cmd.startswith('\\'): # Comandos
@@ -124,8 +154,11 @@ class Cliente:
                 try:
                     msg_type, src, dst, msg = self.receivePackage()
                     self.interpretMessage(msg_type, src, dst, msg)
-                    if msg_type == MsgType.ERRMSG:
+                    if msg_type == MsgType.ERRMSG.value:
                         print(f"[ERROR] The server reported an error: {msg}")
+                        break
+                    if msg_type == MsgType.DISCNT.value:
+                        print(f"[SERVER] Disconnected from server: {msg}")
                         break
                 except Exception as e:
                     print(f"Error receiving message: {e}")
@@ -140,8 +173,6 @@ class Cliente:
         self.start_receive_loop()
         while True:
             if (self.dst is None):
-                #if not self.online_users:
-                #    self.online_users = self.serverRequest('getOnlineUsers', '')
                 usr = input(f"[Escolha um usuário]: ")
                 if usr.startswith('\\'):
                     self.intepretCommand(usr)
