@@ -129,6 +129,7 @@ class Cliente:
         self.sendPackage(MsgType.CONNCT, str(addr), str(port))
 
     def registerMessage(self, msg):
+        print(msg)
         if self.dst in self.msg_history.keys():
             self.msg_history[self.dst].append(msg)
         else:
