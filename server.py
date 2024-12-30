@@ -4,6 +4,7 @@
 import socket
 import warnings
 import threading
+import struct
 from typing import *
 
 from crypto import Criptografia, MsgType
@@ -12,6 +13,7 @@ from crypto import Criptografia, MsgType
 ADDRESS = (socket.gethostname(), 8080)
 
 class Servidor():
+    
     """
     Classe do servidor.
     Baseado em: https://docs.python.org/3/howto/sockets.html
@@ -72,10 +74,10 @@ class Servidor():
         for usr in self.online_users.keys():
             self.sendPackageUsr(msg_type, src, usr, msg)
 
-    def getUserSocket(self, usr):
+    def getUserSocket(self, usr) -> socket.socket:
         return self.online_users[usr][0]
 
-    def getUserAddr(self, usr):
+    def getUserAddr(self, usr) -> Tuple[str, int]:
         return self.online_users[usr][1]
 
     def addUser(self, usr, socket, addr):
@@ -99,6 +101,67 @@ class Servidor():
         #TODO
         #self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
         return
+    
+    def sendFileUsr(self, msg_type: MsgType, src: str, dst: str, fnm: str, file_data: bytes):
+        if dst not in self.online_users:
+            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            return
+        
+        client_socket = self.getUserSocket(dst)
+        if client_socket._closed:
+            self.log(f"Socket for user `{dst}` is closed. Unable to forward message.", logtype='warn')
+            return
+
+        # Envia informações da transação
+        enc_msg = Criptografia.encode_msg(msg_type, src, dst, fnm.replace('\x00', ''))
+        client_socket.sendall(enc_msg) 
+
+        # Envia tamanho do arquivo
+        fsz = len(file_data)
+        client_socket.send(struct.pack('!I', fsz))
+
+        # Envia dados do arquivo
+        buffer = 1024
+        total_sent = 0
+        while total_sent < fsz:
+            end = min(total_sent + buffer, fsz)  # Define o tamanho do próximo bloco
+            data = file_data[total_sent:end]
+            sent = client_socket.send(data)
+            if sent == 0:
+                raise RuntimeError("Socket connection broken.")
+            total_sent += sent
+        print(f'File Name Sent: {total_sent} bytes')
+    
+    def getFileSize(self, sock) -> int:
+        received = 0
+        chunks = []
+        while received < 4:
+            data = sock.recv(4 - received)
+            received += len(data)
+            chunks.append(data)
+        fsz = struct.unpack('!I', b''.join(chunks))[0]
+        return fsz
+    
+    def recieveFilePackage(self, src, dst, fnm):
+        if dst not in self.online_users:
+            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            return
+        
+        src_socket = self.getUserSocket(src)
+        fsz = self.getFileSize(src_socket)
+
+        # Recebe o arquivo
+        chunks = b''
+        total_received = 0
+        while total_received < fsz:
+            data = src_socket.recv(1024)
+            if not data:
+                break
+            chunks += data
+            total_received += len(data)
+        
+        self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
+        self.sendFileUsr(MsgType.FWDFL, src, dst, fnm, chunks)
 
     def interpretMessage(self, mtype: MsgType, src: str, dst: str | socket.socket, msg: str | Tuple[str, int]):
         match (mtype):
@@ -119,6 +182,10 @@ class Servidor():
                 assert(type(src) == str and type(dst) == str and type(msg) == str)
                 self.interpretServerRequest(src=src, cmd=dst, options=msg)
 
+            case  MsgType.FWDFL.value:
+                assert(type(src) == str and type(dst) == str and type(msg) == str)
+                self.recieveFilePackage(src, dst, fnm = msg)               
+
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
 
@@ -133,6 +200,9 @@ class Servidor():
                 mtype, src, dst, msg = Criptografia.decode_msg(data)
                 if mtype == MsgType.CONNCT.value:
                     self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
+                elif mtype == MsgType.FWDFL.value:
+                    #Receber o nome do arquivo e enviar para o dst
+                    self.interpretMessage(mtype, src, dst, msg)
                 else:
                     self.interpretMessage(mtype, src, dst, msg)
         except Exception as e:

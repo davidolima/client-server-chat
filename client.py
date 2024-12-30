@@ -9,8 +9,11 @@
 import socket
 import warnings
 from typing import *
+import struct
 
 import threading
+
+import os
 
 from crypto import Criptografia, MsgType
 
@@ -50,9 +53,36 @@ class Cliente:
         self.socket.close()
         print("Disconnected!")
 
+    def sendFile(self, dst, filename) -> None:
+        self.sendFilePackage(MsgType.FWDFL, dst, filename)
+        print(f"You: {filename} sent")
+
+    def sendFilePackage(self, msg_type: MsgType, dst: str, filename: str):
+        if not self.isConnected():
+            warnings.warn("Not connected to server.")
+            return (MsgType.ERRMSG, '', '', '')
+
+        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{filename}')
+        self.socket.sendall(enc_msg) 
+
+        fsz = os.path.getsize(filename)
+        self.socket.send(struct.pack('!I', fsz))
+
+        # Enviando arquivo
+        with open(filename, 'rb') as file:
+            file_data = file.read(1024)          
+            total_sent = 0
+            while total_sent < fsz:
+                sent = self.socket.send(file_data)
+                if sent == 0:
+                    raise RuntimeError("Socket connection broken.")
+                total_sent += sent
+                file_data = file.read(1024)
+        file.close()  
+
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
-        print(f"{self.username}: {msg}")
+        print(f"You: {msg}")
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
         """
@@ -97,6 +127,29 @@ class Cliente:
     def serverRequest(self, request, options):
         self.sendPackage(MsgType.SERVER, request, options)
         return msg
+    
+    def getFileSize(self) -> int:
+        received = 0
+        chunks = []
+        while received < 4:
+            data = self.socket.recv(4 - received)
+            received += len(data)
+            chunks.append(data)
+        fsz = struct.unpack('!I', b''.join(chunks))[0]
+        return fsz
+    
+    def downloadReceivedFile(self, src, filename):
+        fsz = self.getFileSize()
+        total_received = 0
+        with open(filename.replace('\x00', ''), 'wb') as file:
+            while total_received < fsz:
+                data = self.socket.recv(1024)
+                if not data:
+                    break
+                file.write(data)
+                total_received += len(data)
+        file.close()
+        print(f"{src}: sent {filename}")
 
     def intepretCommand(self, cmd: str) -> None:
         if cmd.startswith('\\'): # Comandos
@@ -106,6 +159,9 @@ class Cliente:
                 else: # Do programa (desconectar)
                     self.disconnect()
                     quit()
+            elif cmd[:cmd.find(' ')] == '\\send': # Enviar arquivo
+                filename = cmd[cmd.find(' ')+1:]
+                self.sendFile(self.dst, filename)
         else:
             self.sendMessage(self.dst, cmd)
 
@@ -113,6 +169,10 @@ class Cliente:
         match(mtype):
             case MsgType.FWDMSG.value:
                 print(f"{src}: {msg}")
+
+            case MsgType.FWDFL.value:
+                self.downloadReceivedFile(src, filename = msg)
+        
             case MsgType.SERVER.value:
                 print(f"[SERVER] {msg}")
             case _:
@@ -147,7 +207,7 @@ class Cliente:
                     self.intepretCommand(usr)
                 self.dst = usr
             else:
-                msg = input(f"[{self.dst}] > ")
+                msg = input(f"> ")
                 print('\033[1A' + '\033[K', end='')
                 self.intepretCommand(msg)
 
