@@ -39,7 +39,7 @@ class Servidor():
 
     def forwardMessage(self, src, dst, msg):
         if dst not in self.online_users:
-            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot forward message. User `{dst}` is not online.")
             return
 
         #self.log(f"Forwarding message: src: {src} dst: {dst} msg: {msg}")
@@ -48,7 +48,7 @@ class Servidor():
 
     def sendPackageUsr(self, msg_type: MsgType, src: str , dst: str, msg: str):
         if dst not in self.getOnlineUsers():
-            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
 
         enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
