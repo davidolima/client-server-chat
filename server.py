@@ -5,8 +5,6 @@ from typing import *
 
 from crypto import Criptografia, MsgType
 
-ADDRESS = (socket.gethostname(), 8080)
-
 class Servidor():
     """
     Classe do servidor.
@@ -193,9 +191,12 @@ class Servidor():
                 args = cmd[1:]
             self.interpretCommand(cmd[0], args)
 
-def main():
-    serv = Servidor(ADDRESS)
-    serv.startWithTerminal()
-
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default=socket.gethostname(), type=str)
+    parser.add_argument("--port", default=8080, type=int)
+    args = parser.parse_args()
+
+    serv = Servidor((args.host, args.port))
+    serv.startWithTerminal()

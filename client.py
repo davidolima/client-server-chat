@@ -201,5 +201,10 @@ class Cliente:
                 self.intepretCommand(msg)
 
 if __name__ == "__main__":
-    c = Cliente()
-    c.start(socket.gethostname(), 8080)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default=socket.gethostname(), type=str)
+    parser.add_argument("--port", default=8080, type=int)
+    args = parser.parse_args()
+
+    Cliente().start(args.host, args.port)
