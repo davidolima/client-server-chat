@@ -94,14 +94,14 @@ class Cliente:
 
     def sendFile(self, dst, filename) -> None:
         self.sendFilePackage(MsgType.FWDFL, dst, filename)
-        print(f"You: {filename} sent")
+        self.registerMessage(self.dst, f"[!] Você enviou um arquivo para {dst}: {filename}")
 
     def sendFilePackage(self, msg_type: MsgType, dst: str, filename: str):
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
 
-        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{filename}')
+        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{os.path.basename(filename)}')
         self.socket.sendall(enc_msg) 
 
         fsz = os.path.getsize(filename)
@@ -223,9 +223,17 @@ class Cliente:
         return fsz
     
     def downloadReceivedFile(self, src, filename):
+        dst_path = os.path.join("received_files", src)
+        if not os.path.exists('received_files'):
+            os.mkdir('received_files')
+        if not os.path.exists(dst_path):
+            os.mkdir(dst_path)
+
+        fpath = os.path.join(dst_path, filename.replace('\x00', ''))
+
         fsz = self.getFileSize()
         total_received = 0
-        with open(filename.replace('\x00', ''), 'wb') as file:
+        with open(fpath, 'wb') as file:
             while total_received < fsz:
                 data = self.socket.recv(1024)
                 if not data:
@@ -233,7 +241,7 @@ class Cliente:
                 file.write(data)
                 total_received += len(data)
         file.close()
-        print(f"{src}: sent {filename}")
+        self.registerMessage(self.dst, f"[!] {src} te enviou um arquivo: {filename}")
 
     def interpretMessage(self, msg: str) -> None:
         print(self.unread)

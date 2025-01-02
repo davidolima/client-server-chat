@@ -6,7 +6,7 @@ from socket import gethostname
 
 import tkinter as tk
 from tkinter import ttk
-from tkinter import scrolledtext, messagebox
+from tkinter import scrolledtext, messagebox, filedialog
 
 from client import Cliente
 
@@ -14,7 +14,7 @@ class ScreenState(Enum):
     LOGIN = 0
     CHAT = 1
 
-class ChatApp(ttk.Frame):
+class App(ttk.Frame):
     def __init__(self, root: tk.Tk, client: Cliente) -> None:
         self.root = root
         self.root.title("Client")
@@ -84,11 +84,13 @@ class ChatApp(ttk.Frame):
         self.login_button.bind('<Return>', lambda _: self.authenticateUser())
 
     def authenticateUser(self):
-        login_success = self.client.authenticate(
-            username = self.username_box.get(),
-            passwd   = self.password_box.get()
-        )
+        usr = self.username_box.get()
+        pwd = self.password_box.get()
+        if not usr or not pwd:
+            messagebox.showinfo("A autenticação falhou", "Por favor, preencha os dois campos.")
+            return
 
+        login_success = self.client.authenticate(usr, pwd)
         if login_success:
             self.changeState(ScreenState.CHAT)
             self.client.start_receive_loop()
@@ -101,19 +103,22 @@ class ChatApp(ttk.Frame):
         Layout da tela de chat
         """
 
-        self.chat_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state='disabled', height=20, width=50)
-        self.chat_area.grid(row=0, column=1, columnspan=2, padx=10, pady=10)
-
-        self.message_box = tk.Entry(self.root, width=40)
-        self.message_box.grid(row=1, column=1, padx=10, pady=10)
-        self.message_box.bind('<Return>', lambda _: self.sendMessage())
+        self.chat_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state='disabled', height=20, width=80)
+        self.chat_area.grid(row=0, column=1, columnspan=3, padx=10, pady=10)
 
         self.users_list = tk.Listbox(self.root, height=20, width=20)
         self.users_list.grid(row=0, column=0, rowspan=2, padx=10, pady=10, sticky='ns')
         self.users_list.bind("<<ListboxSelect>>", self.selectDestinationUser)
 
+        self.message_box = tk.Entry(self.root, width=70)
+        self.message_box.grid(row=1, column=1, padx=10, pady=10)
+        self.message_box.bind('<Return>', lambda _: self.sendMessage())
+
         self.send_button = tk.Button(self.root, text="Enviar", command=self.sendMessage)
-        self.send_button.grid(row=1, column=2, padx=10, pady=10)
+        self.send_button.grid(row=1, column=2, padx=5, pady=10)
+
+        self.send_file_button = tk.Button(self.root, text="+", command=self.sendFile)
+        self.send_file_button.grid(row=1, column=3, padx=5, pady=10)
 
     def selectDestinationUser(self, event):
         selected = self.users_list.curselection()
@@ -127,6 +132,13 @@ class ChatApp(ttk.Frame):
         self.users_list.delete(0, tk.END)  # Clear the list
         for user in users:
             self.users_list.insert(tk.END, user + (' *' if user in self.client.getUnread() else ''))
+
+    def sendFile(self):
+        fname = filedialog.askopenfilename(
+            title="Selecione um arquivo para enviar",
+            initialdir='/'
+        )
+        self.client.sendFile(self.client.dst, fname)
 
     def sendMessage(self):
         msg = self.message_box.get()
@@ -149,7 +161,7 @@ class ChatApp(ttk.Frame):
                 self.chat_area.insert(tk.INSERT, '\n' + str(msg))
                 self.chat_area.see(tk.END)
         else:
-            msgs = ChatApp.bemVindo()
+            msgs = App.bemVindo()
             for msg in msgs:
                 self.chat_area.insert(tk.INSERT, str(msg))
                 self.chat_area.see(tk.END)
@@ -166,7 +178,7 @@ class ChatApp(ttk.Frame):
         self.updateUsersList(self.client.online_users)
 
 if __name__ == "__main__":
-    app = ChatApp(
+    app = App(
         root   =   tk.Tk(),
         client = Cliente()
     )
