@@ -16,6 +16,7 @@ class MsgType(Enum):
     CONNCT = 4 # Connection
     DISCNT = 5 # Disconnect
     SERVER = 6 # Requisição para o servidor
+    FWDFL = 7 # Forward File
 
 class Criptografia:
     @staticmethod
@@ -34,7 +35,7 @@ class Criptografia:
             len(dst), b_dst,
             len(msg), b_msg
         )
-
+        
     @staticmethod
     def decode_msg(data: bytes, encoding='utf-8') -> tuple[MsgType, str, str, str]:
         """
