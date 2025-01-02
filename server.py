@@ -88,14 +88,14 @@ class Servidor():
             self.online_users[usr] = (socket,addr)
             msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, f"Bem vindo, {usr}!")
             ret = True
+
+            # notify clients
+            self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
+            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
         else:
             msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
 
         self.sendPackage(socket, msg)
-
-        # notify clients
-        self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
-        self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
         return ret
 
     def removeUser(self, usr_addr):
@@ -109,11 +109,6 @@ class Servidor():
 
     def getOnlineUsers(self):
         return list(self.online_users.keys())
-
-    def interpretServerRequest(self, src:str, cmd: str, options: str):
-        #TODO
-        #self.sendPackageUsr(MsgType.ACCEPT, src, cmd, str(list(__dict__.keys())))
-        return
     
     def sendFileUsr(self, msg_type: MsgType, src: str, dst: str, fnm: str, file_data: bytes):
         if dst not in self.online_users:
