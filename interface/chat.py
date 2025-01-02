@@ -14,7 +14,7 @@ class ScreenState(Enum):
     CHAT = 1
 
 class ChatApp(ttk.Frame):
-    def __init__(self, root, client) -> None:
+    def __init__(self, root: tk.Tk, client) -> None:
         self.root = root
         self.root.title("Client")
         super().__init__(root, padding=10)
@@ -22,8 +22,10 @@ class ChatApp(ttk.Frame):
         self.message_box_content = ""
         self.client = client
         self.client.start(gethostname(), 8080)
+        self.client.registerGUI(self)
 
         self.screen_state = ScreenState.LOGIN
+        self.msg_history = {}
 
         self.login()
 
@@ -33,11 +35,12 @@ class ChatApp(ttk.Frame):
             widget.destroy()
 
         match (new_state):
-            case ScreenState.LOGIN.value:
+            case ScreenState.LOGIN:
                 self.login()
-            case ScreenState.CHAT.value:
+            case ScreenState.CHAT:
                 self.setupChatLayout()
-
+            case _:
+                raise RuntimeError(f"Request to change into unknown screen state: {new_state}")
         self.screen_state = new_state
 
     def login(self):
@@ -57,6 +60,7 @@ class ChatApp(ttk.Frame):
 
         self.login_button = tk.Button(self.root, text="Login", command=self.authenticateUser)
         self.login_button.grid(row=3, column=0, columnspan=2, pady=10)
+        self.login_button.bind('<Return>', lambda _: self.authenticateUser())
 
     def authenticateUser(self):
         login_success = self.client.authenticate(
@@ -64,14 +68,13 @@ class ChatApp(ttk.Frame):
             passwd   = self.password_box.get()
         )
 
-        title, msg = "A autenticação falhou", "Usuário ou senha inválidos!"
         if login_success:
-            title, msg = "Bem vindo!", "Login realizado com sucesso!"
+            self.changeState(ScreenState.CHAT)
+            self.client.start_receive_loop()
+            return
 
-        messagebox.showinfo(title, msg)
-        if login_success:
-            self.setupChatLayout()
-        
+        messagebox.showinfo("A autenticação falhou", "Usuário ou senha inválidos!")
+
     def setupChatLayout(self):
         """
         Layout da tela de chat
@@ -93,6 +96,23 @@ class ChatApp(ttk.Frame):
 
         if self.client.dst is not None:
             self.client.interpretMessage(msg)
+
+    def displayMessage(self, msg):
+        self.chat_area.config(state='normal')
+        self.chat_area.insert(tk.INSERT, str(msg))
+        self.chat_area.config(state='disabled')
+        self.chat_area.see(tk.END)
+
+    def clearChat(self):
+        self.chat_area.configure(state='normal')
+        self.chat_area.delete('1.0', tk.END)
+        self.chat_area.configure(state='disabled')
+
+    def updateChat(self):
+        self.clearChat()
+        self.msg_history = self.client.getMsgHistory()
+        for msg in self.msg_history[self.client.getDestination()]:
+            self.displayMessage(msg)
 
 if __name__ == "__main__":
     print("Para executar o GUI, por favor utilize o arquivo `run_client_gui.py`")

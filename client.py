@@ -35,6 +35,18 @@ class Cliente:
         self.port: int = -1
 
         self.msg_history = {}
+        self.gui = None
+
+    def registerGUI(self, gui):
+        """
+        Register GUI as observer
+        """
+        self.gui = gui
+
+    def notifyGUI(self):
+        assert self.gui is not None
+        if self.gui is not None:
+            self.gui.updateChat()
 
     def isConnected(self) -> bool:
         return (self.socket is not None)
@@ -171,16 +183,29 @@ class Cliente:
         return False
 
     def registerMessage(self, msg):
-        print(msg)
         if self.dst in self.msg_history.keys():
             self.msg_history[self.dst].append(msg)
         else:
             self.msg_history[self.dst] = [msg]
 
+        if self.gui is None:
+            print(msg)
+        else:
+            self.notifyGUI()
+
+    def getMsgHistory(self):
+        return self.msg_history
+
     def getMsgHistoryWithUsr(self, usr):
         if usr not in self.msg_history.keys():
             self.msg_history[usr] = []
         return self.msg_history[usr]
+
+    def getDestination(self):
+        return self.dst
+
+    def setDestination(self, dst):
+        self.dst = dst
 
     def getFileSize(self) -> int:
         received = 0
@@ -242,12 +267,9 @@ class Cliente:
     def start_receive_loop(self):
         def receive_messages():
             while self.isConnected():
-                try:
-                   if self.interpretPackage( self.receivePackage() ):
-                       break
-                except Exception as e:
-                    print(f"Error receiving message: {e}")
+                if self.interpretPackage( self.receivePackage() ):
                     break
+
             self.disconnect()
 
         thread = threading.Thread(target=receive_messages, daemon=True)
