@@ -12,21 +12,21 @@
 Os alunos devem trabalhar em equipes para implementar um sistema distribuído que atenda aos seguintes requisitos:
 
 - **Escopo do Sistema**: Criar uma aplicação cliente-servidor para uma rede fictícia de compartilhamento de informações, com funcionalidades como:
-    - Cadastro de usuários.
-    - Envio e recebimento de mensagens em tempo real (chat).
-    - Transferência de arquivos entre clientes.
-    - Registros e logs de atividade.
+  - [ ] Cadastro de usuários.
+  - [X] Envio e recebimento de mensagens em tempo real (chat).
+  - [X] Transferência de arquivos entre clientes.
+  - [X] Registros e logs de atividade.
 - **Requisitos Técnicos**:
-   - Implementação de sockets TCP e UDP.
-   - Suporte para comunicação simultânea de múltiplos clientes (concorrência com threads ou processos).
-   - Mecanismos básicos de autenticação (login/senha).
-   - Tratamento de erros e reconexão em caso de falhas.
-   - Criptografia básica para troca de mensagens (ex.: AES ou RSA).
-   - Controle de tráfego (ex.: limitar o número de conexões simultâneas por cliente).
+  - [X] Implementação de sockets TCP e UDP.
+  - [X] Suporte para comunicação simultânea de múltiplos clientes (concorrência com threads ou processos).
+  - [ ] Mecanismos básicos de autenticação (login/senha).
+  - [X] Tratamento de erros e reconexão em caso de falhas.
+  - [ ] Criptografia básica para troca de mensagens (ex.: AES ou RSA).
+  - [ ] Controle de tráfego (ex.: limitar o número de conexões simultâneas por cliente).
 - **Funcionalidades Extras (Opcional)**:
-   - Chat em grupo (multicast).
-   - Suporte para comunicação em tempo real com áudio ou vídeo (bônus).
-   - Interface gráfica simples (ex.: Tkinter, PyQt ou similar).
+  - [ ] Chat em grupo (multicast).
+  - [ ] Suporte para comunicação em tempo real com áudio ou vídeo (bônus).
+  - [ ] Interface gráfica simples (ex.: Tkinter, PyQt ou similar).
 
 ## 2. Linguagens de programação permitidas
 
