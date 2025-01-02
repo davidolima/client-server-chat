@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 
 from typing import *
+from enum import Enum
+from socket import gethostname
+
 import tkinter as tk
 from tkinter import ttk
 from tkinter import scrolledtext, messagebox
 
-from socket import gethostname
-
-from enum import Enum
+from client import Cliente
 
 class ScreenState(Enum):
     LOGIN = 0
     CHAT = 1
 
 class ChatApp(ttk.Frame):
-    def __init__(self, root: tk.Tk, client) -> None:
+    def __init__(self, root: tk.Tk, client: Cliente) -> None:
         self.root = root
         self.root.title("Client")
         super().__init__(root, padding=10)
@@ -165,4 +166,8 @@ class ChatApp(ttk.Frame):
         self.updateUsersList(self.client.online_users)
 
 if __name__ == "__main__":
-    print("Para executar o GUI, por favor utilize o arquivo `run_client_gui.py`")
+    app = ChatApp(
+        root   =   tk.Tk(),
+        client = Cliente()
+    )
+    app.mainloop()
