@@ -244,7 +244,6 @@ class Cliente:
         self.registerMessage(self.dst, f"[!] {src} te enviou um arquivo: {filename}")
 
     def interpretMessage(self, msg: str) -> None:
-        print(self.unread)
         if msg.startswith('\\'): # Comandos
             if msg == '\\q': # Sair
                 if self.dst is not None: # De conversas

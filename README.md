@@ -26,7 +26,7 @@ Os alunos devem trabalhar em equipes para implementar um sistema distribuído qu
 - **Funcionalidades Extras (Opcional)**:
   - [ ] Chat em grupo (multicast).
   - [ ] Suporte para comunicação em tempo real com áudio ou vídeo (bônus).
-  - [ ] Interface gráfica simples (ex.: Tkinter, PyQt ou similar).
+  - [X] Interface gráfica simples (ex.: Tkinter, PyQt ou similar).
 
 ## 2. Linguagens de programação permitidas
 
