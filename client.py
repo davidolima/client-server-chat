@@ -44,9 +44,8 @@ class Cliente:
         self.gui = gui
 
     def notifyGUI(self):
-        assert self.gui is not None
         if self.gui is not None:
-            self.gui.updateChat()
+            self.gui.update()
 
     def isConnected(self) -> bool:
         return (self.socket is not None)
@@ -166,7 +165,7 @@ class Cliente:
             return False
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
-        self.username = username
+        self.username = username.replace(' ', '_')
         assert(passwd == passwd) # FIXME: `passwd` is unused. Use it in authentication
 
         addr, port = self.socket.getsockname()
@@ -174,7 +173,6 @@ class Cliente:
         mtype, _, _, msg = self.receivePackage()
 
         if mtype == MsgType.ACCEPT.value:
-            self.online_users = msg[1:-1].split(',')
             return True
         elif mtype == MsgType.DENIED.value:
             print("[Error]", msg)
@@ -260,6 +258,9 @@ class Cliente:
             case MsgType.DISCNT.value:
                 self.registerMessage(f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
+            case MsgType.USRONL.value:
+                self.online_users = msg[2:-3].split("', '")
+                self.notifyGUI()
             case _:
                 pass
         return interrupt
@@ -269,13 +270,17 @@ class Cliente:
             while self.isConnected():
                 if self.interpretPackage( self.receivePackage() ):
                     break
-
             self.disconnect()
 
         thread = threading.Thread(target=receive_messages, daemon=True)
         thread.start()
 
     def start(self, server_addr, server_port):
+        """
+        Even though this method is only serving as an alias for self.connect,
+        I'll keep it. This is because we might want to do something else
+        during start-up.
+        """
         self.connect(server_addr, server_port)
 
     def startInTerminal(self, server_addr, server_port):
