@@ -1,6 +1,3 @@
-# TODO
-#  - criar um servidor para implementar as funcionalidades e requisitos do projeto
-
 import socket
 import warnings
 import threading
@@ -8,9 +5,6 @@ import struct
 from typing import *
 
 from crypto import Criptografia, MsgType
-
-
-ADDRESS = (socket.gethostname(), 8080)
 
 class Servidor():
     
@@ -33,15 +27,19 @@ class Servidor():
         s.listen(self.max_connections);
         return s
 
-    def log(self, msg, logtype: Literal['info', 'warn'] = 'info', **args):
+    def log(self, msg, logtype: Literal['server', 'info', 'warn'] = 'server', **args):
+        prefix = "[SERVER]"
+
         if logtype == 'warn':
-            print("[SERVER WARNING]", msg, **args)
-        else:
-            print("[SERVER]", msg, **args)
+            prefix = "[SERVER WARNING]"
+        elif logtype == 'info':
+            prefix = "[INFO]"
+
+        print(prefix, msg, **args)
 
     def forwardMessage(self, src, dst, msg):
         if dst not in self.online_users:
-            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot forward message. User `{dst}` is not online.")
             return
 
         #self.log(f"Forwarding message: src: {src} dst: {dst} msg: {msg}")
@@ -50,7 +48,7 @@ class Servidor():
 
     def sendPackageUsr(self, msg_type: MsgType, src: str , dst: str, msg: str):
         if dst not in self.getOnlineUsers():
-            self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
+            self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
 
         enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
@@ -189,6 +187,26 @@ class Servidor():
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
 
+    def interpretCommand(self, cmd, args):
+        match (cmd):
+            case "kick":
+                """
+                Kicks user of username args[0]
+                """
+                if len(args) != 1:
+                    self.log(" Comando utilizado incorretamente. ", logtype='info')
+                    self.log(" Ex: > kick david", logtype='info')
+                    return
+                elif args[0] not in self.getOnlineUsers():
+                    self.log(f" Usuário `{args[0]}` não está online.", logtype='info')
+                    return
+
+                self.sendPackageUsr(MsgType.DISCNT, 'server', args[0], "kicked from server.")
+                self.log(f"Kicked {args[0]}.")
+
+            case _:
+                self.log(f"Comando não reconhecido: `{cmd}`", logtype='info')
+
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
         print(f" >>> {client_addr} connected.")
 
@@ -200,18 +218,23 @@ class Servidor():
                 mtype, src, dst, msg = Criptografia.decode_msg(data)
                 if mtype == MsgType.CONNCT.value:
                     self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
+                elif mtype == MsgType.DISCNT.value:
+                    break
                 elif mtype == MsgType.FWDFL.value:
                     #Receber o nome do arquivo e enviar para o dst
                     self.interpretMessage(mtype, src, dst, msg)
                 else:
                     self.interpretMessage(mtype, src, dst, msg)
+
         except Exception as e:
             self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
+
         finally:
             client_socket.close()
             self.removeUser(client_addr)
             self.log(f" <<< {client_addr} disconnected.")
             self.log(f"Online users: {self.getOnlineUsers()}")
+
 
     def start(self):
         while True:
@@ -223,9 +246,27 @@ class Servidor():
                 daemon=True
             )
             client_thread.start()
-def main():
-    serv = Servidor(ADDRESS)
-    serv.start()
+
+    def startWithTerminal(self):
+        server_thread = threading.Thread(
+                target=self.start,
+                daemon=True
+        )
+        server_thread.start()
+
+        while True:
+            cmd = input("> ").split(' ')
+            args = []
+            if len(cmd) > 1:
+                args = cmd[1:]
+            self.interpretCommand(cmd[0], args)
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default=socket.gethostname(), type=str)
+    parser.add_argument("--port", default=8080, type=int)
+    args = parser.parse_args()
+
+    serv = Servidor((args.host, args.port))
+    serv.startWithTerminal()
