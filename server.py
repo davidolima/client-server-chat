@@ -46,6 +46,16 @@ class Servidor():
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
         self.sendPackageUsr(MsgType.FWDMSG, src, dst, msg)
 
+    def sendPackage(self, socket: socket.socket, msg: bytes):
+        # Enviar msg
+        # Baseado em: https://docs.python.org/3/howto/sockets.html
+        total_sent = 0
+        while total_sent < len(msg):
+            sent = socket.send(msg[total_sent:])
+            if sent == 0:
+                raise RuntimeError("Socket connection broken.")
+            total_sent += sent
+
     def sendPackageUsr(self, msg_type: MsgType, src: str , dst: str, msg: str):
         if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
@@ -54,18 +64,11 @@ class Servidor():
         enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
 
         client_socket = self.getUserSocket(dst)
-        if client_socket._closed:
+        if not client_socket:
             self.log(f"Socket for user `{dst}` is closed. Unable to forward message.", logtype='warn')
             return
 
-        # Enviar msg
-        # Baseado em: https://docs.python.org/3/howto/sockets.html
-        total_sent = 0
-        while total_sent < len(msg):
-            sent = client_socket.send(enc_msg[total_sent:])
-            if sent == 0:
-                raise RuntimeError("Socket connection broken.")
-            total_sent += sent
+        self.sendPackage(client_socket, enc_msg)
         self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
 
     def sendToAll(self, msg_type: MsgType, src: str, msg: str):
@@ -78,13 +81,18 @@ class Servidor():
     def getUserAddr(self, usr) -> Tuple[str, int]:
         return self.online_users[usr][1]
 
-    def addUser(self, usr, socket, addr):
+    def addUser(self, usr, socket, addr) -> bool:
+        ret, msg = False, None
         if usr not in self.online_users:
             self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
             self.online_users[usr] = (socket,addr)
-            self.sendPackageUsr(MsgType.ACCEPT, 'server', usr, f'Conectado com servidor. Usuários online: {self.getOnlineUsers()}')
-            return
-        self.sendPackageUsr(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
+            msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, str(self.getOnlineUsers()))
+            ret = True
+        else:
+            msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
+
+        self.sendPackage(socket, msg)
+        return ret
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
