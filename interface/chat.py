@@ -87,7 +87,7 @@ class ChatApp(ttk.Frame):
         self.message_box.grid(row=1, column=0, padx=10, pady=10)
         self.message_box.bind('<Return>', lambda e: self.sendMessage(e))
 
-        self.send_button = tk.Button(self.root, text="Send", command=self.sendMessage)
+        self.send_button = tk.Button(self.root, text="Enviar", command=self.sendMessage)
         self.send_button.grid(row=1, column=1, padx=10, pady=10)
 
     def sendMessage(self, msg=None):
@@ -99,7 +99,7 @@ class ChatApp(ttk.Frame):
 
     def displayMessage(self, msg):
         self.chat_area.config(state='normal')
-        self.chat_area.insert(tk.INSERT, str(msg))
+        self.chat_area.insert(tk.INSERT, '\n' + str(msg).strip())
         self.chat_area.config(state='disabled')
         self.chat_area.see(tk.END)
 
