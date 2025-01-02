@@ -35,6 +35,7 @@ class Cliente:
         self.port: int = -1
 
         self.msg_history = {}
+        self.unread = []
         self.gui = None
 
     def registerGUI(self, gui):
@@ -120,7 +121,7 @@ class Cliente:
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
-        self.registerMessage(f"Você: {msg}")
+        self.registerMessage(self.dst, f"Você: {msg}")
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
         """
@@ -165,7 +166,7 @@ class Cliente:
             return False
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
-        self.username = username.replace(' ', '_')
+        self.username = username.replace(' ', '_').replace('*','')
         assert(passwd == passwd) # FIXME: `passwd` is unused. Use it in authentication
 
         addr, port = self.socket.getsockname()
@@ -180,16 +181,20 @@ class Cliente:
             print("Unexpected return type when trying to login:", mtype)
         return False
 
-    def registerMessage(self, msg):
-        if self.dst in self.msg_history.keys():
-            self.msg_history[self.dst].append(msg)
-        else:
-            self.msg_history[self.dst] = [msg]
+    def registerMessage(self, author, msg):
+        self.getMsgHistoryWithUsr(author)
+        self.msg_history[author].append(msg)
+
+        if self.dst != author and author not in self.unread:
+            self.unread.append(author)
 
         if self.gui is None:
             print(msg)
         else:
             self.notifyGUI()
+
+    def getUnread(self):
+        return self.unread
 
     def getMsgHistory(self):
         return self.msg_history
@@ -204,6 +209,8 @@ class Cliente:
 
     def setDestination(self, dst):
         self.dst = dst
+        if self.dst in self.unread:
+            self.unread.remove(self.dst)
 
     def getFileSize(self) -> int:
         received = 0
@@ -229,6 +236,7 @@ class Cliente:
         print(f"{src}: sent {filename}")
 
     def interpretMessage(self, msg: str) -> None:
+        print(self.unread)
         if msg.startswith('\\'): # Comandos
             if msg == '\\q': # Sair
                 if self.dst is not None: # De conversas
@@ -247,16 +255,16 @@ class Cliente:
         interrupt = False
         match(mtype):
             case MsgType.FWDMSG.value:
-                self.registerMessage(f"{src}: {msg}")
+                self.registerMessage(src, f"{src}: {msg}")
             case MsgType.FWDFL.value:
                 self.downloadReceivedFile(src, filename = msg)
             case MsgType.SERVER.value:
-                self.registerMessage(f"[SERVER] {msg}")
+                self.registerMessage(self.dst, f"[SERVER] {msg}")
             case MsgType.ERRMSG.value:
-                self.registerMessage(f"[ERROR] The server reported an error: {msg}")
+                self.registerMessage(self.dst, f"[ERROR] The server reported an error: {msg}")
                 interrupt = True
             case MsgType.DISCNT.value:
-                self.registerMessage(f"[SERVER] Disconnected from server: {msg}")
+                self.registerMessage(self.dst, f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
             case MsgType.USRONL.value:
                 self.online_users = msg[2:-3].split("', '")

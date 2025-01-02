@@ -25,7 +25,6 @@ class ChatApp(ttk.Frame):
         self.client.registerGUI(self)
 
         self.screen_state = ScreenState.LOGIN
-        self.msg_history = {}
 
         self.login()
 
@@ -42,6 +41,27 @@ class ChatApp(ttk.Frame):
             case _:
                 raise RuntimeError(f"Request to change into unknown screen state: {new_state}")
         self.screen_state = new_state
+
+    @staticmethod
+    def bemVindo():
+        msg  = ["-----------------------------------------\n"]
+        msg += ["|        Bem vindo ao servidor          |\n"]
+        msg += ["+---------------------------------------+\n"]
+        msg += ["|  Este trabalho foi desenvolvido como  |\n"]
+        msg += ["|  trabalho semestral para a disciplina |\n"]
+        msg += ["|  de Redes de Computadores, ministrada |\n"]
+        msg += ["|  pelo prof. Leobino Sampaio, no seme- |\n"]
+        msg += ["|  stre de 2024.2, na Universidade Fe-  |\n"]
+        msg += ["|  deral da Bahia.                      |\n"]
+        msg += ["+---------------------------------------+\n"]
+        msg += ["|           Membros do Grupo            |\n"]
+        msg += ["+---------------------------------------+\n"]
+        msg += ["|  Breno Nascimento da Silva Cupertino  |\n"]
+        msg += ["|  David de Oliveira Lima               |\n"]
+        msg += ["|  Ícaro Miranda de Santana             |\n"]
+        msg += ["|  Yan Brandão Borges da Silva          |\n"]
+        msg += ["-----------------------------------------\n"]
+        return msg
 
     def login(self):
         """
@@ -97,15 +117,15 @@ class ChatApp(ttk.Frame):
     def selectDestinationUser(self, event):
         selected = self.users_list.curselection()
         if selected:
-            dst = self.users_list.get(selected[0])
+            dst = self.users_list.get(selected[0]).replace(' *', '')
             self.client.setDestination(dst)
 
-        self.displayMessages()
+        self.update()
 
     def updateUsersList(self, users):
         self.users_list.delete(0, tk.END)  # Clear the list
         for user in users:
-            self.users_list.insert(tk.END, user)
+            self.users_list.insert(tk.END, user + (' *' if user in self.client.getUnread() else ''))
 
     def sendMessage(self):
         msg = self.message_box.get()
@@ -118,12 +138,21 @@ class ChatApp(ttk.Frame):
     def displayMessages(self):
         self.clearChat()
         self.chat_area.config(state='normal')
-        self.chat_area.insert(tk.INSERT, f'Conversando com {self.client.getDestination()}')
 
-        msgs = self.client.getMsgHistoryWithUsr(self.client.getDestination())
-        for msg in msgs:
-            self.chat_area.insert(tk.INSERT, '\n' + str(msg).strip())
-            self.chat_area.see(tk.END)
+        dst = self.client.getDestination()
+        msgs = None
+        if dst:
+            self.chat_area.insert(tk.INSERT, f'Conversando com {self.client.getDestination()}')
+            msgs = self.client.getMsgHistoryWithUsr(dst)
+            for msg in msgs:
+                self.chat_area.insert(tk.INSERT, '\n' + str(msg))
+                self.chat_area.see(tk.END)
+        else:
+            msgs = ChatApp.bemVindo()
+            for msg in msgs:
+                self.chat_area.insert(tk.INSERT, str(msg))
+                self.chat_area.see(tk.END)
+
         self.chat_area.config(state='disabled')
 
     def clearChat(self):
