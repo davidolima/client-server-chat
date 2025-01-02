@@ -143,7 +143,7 @@ class Servidor():
             if sent == 0:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
-        print(f'File Name Sent: {total_sent} bytes')
+        self.log(f'{src} -> {dst}: File of size {total_sent} bytes')
     
     def getFileSize(self, sock) -> int:
         received = 0
