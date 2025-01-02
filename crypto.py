@@ -16,7 +16,8 @@ class MsgType(Enum):
     CONNCT = 4 # Connection
     DISCNT = 5 # Disconnect
     SERVER = 6 # Requisição para o servidor
-    FWDFL = 7 # Forward File
+    FWDFL  = 7 # Forward File
+    USRONL = 8 # Usuários online
 
 class Criptografia:
     @staticmethod

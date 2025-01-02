@@ -35,6 +35,18 @@ class Cliente:
         self.port: int = -1
 
         self.msg_history = {}
+        self.unread = []
+        self.gui = None
+
+    def registerGUI(self, gui):
+        """
+        Register GUI as observer
+        """
+        self.gui = gui
+
+    def notifyGUI(self):
+        if self.gui is not None:
+            self.gui.update()
 
     def isConnected(self) -> bool:
         return (self.socket is not None)
@@ -48,7 +60,6 @@ class Cliente:
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect( (self.host, self.port) )
-        self.authenticate()
 
     def disconnect(self) -> None:
         if not self.isConnected():
@@ -110,7 +121,7 @@ class Cliente:
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
-        self.registerMessage(f"Você: {msg}")
+        self.registerMessage(self.dst, f"Você: {msg}")
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
         """
@@ -145,34 +156,62 @@ class Cliente:
         msg_type, src, dst, msg = Criptografia.decode_msg(data)
         return msg_type, src, dst, msg
 
-    def authenticate(self) -> None:
+    def authenticate(self, username, passwd) -> bool:
+        """
+        Method used to authenticate users.
+        The return value determines if the attempt was successful.
+        """
         if not self.isConnected():
             warnings.warn("Not connected to server.")
-            return
+            return False
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
-        print("Por favor, autentique-se:")
-        username = input("Usuário: ")
-        self.username = username
+        self.username = username.replace(' ', '_').replace('*','')
+        assert(passwd == passwd) # FIXME: `passwd` is unused. Use it in authentication
 
         addr, port = self.socket.getsockname()
         self.sendPackage(MsgType.CONNCT, str(addr), str(port))
+        mtype, _, _, msg = self.receivePackage()
 
-    def registerMessage(self, msg):
-        print(msg)
-        if self.dst in self.msg_history.keys():
-            self.msg_history[self.dst].append(msg)
+        if mtype == MsgType.ACCEPT.value:
+            return True
+        elif mtype == MsgType.DENIED.value:
+            print("[Error]", msg)
         else:
-            self.msg_history[self.dst] = [msg]
+            print("Unexpected return type when trying to login:", mtype)
+        return False
+
+    def registerMessage(self, author, msg):
+        self.getMsgHistoryWithUsr(author)
+        self.msg_history[author].append(msg)
+
+        if self.dst != author and author not in self.unread:
+            self.unread.append(author)
+
+        if self.gui is None:
+            print(msg)
+        else:
+            self.notifyGUI()
+
+    def getUnread(self):
+        return self.unread
+
+    def getMsgHistory(self):
+        return self.msg_history
 
     def getMsgHistoryWithUsr(self, usr):
         if usr not in self.msg_history.keys():
             self.msg_history[usr] = []
         return self.msg_history[usr]
-    def serverRequest(self, request, options):
-        self.sendPackage(MsgType.SERVER, request, options)
-        return msg
-    
+
+    def getDestination(self):
+        return self.dst
+
+    def setDestination(self, dst):
+        self.dst = dst
+        if self.dst in self.unread:
+            self.unread.remove(self.dst)
+
     def getFileSize(self) -> int:
         received = 0
         chunks = []
@@ -196,35 +235,40 @@ class Cliente:
         file.close()
         print(f"{src}: sent {filename}")
 
-    def intepretCommand(self, cmd: str) -> None:
-        if cmd.startswith('\\'): # Comandos
-            if cmd == '\\q': # Sair
+    def interpretMessage(self, msg: str) -> None:
+        print(self.unread)
+        if msg.startswith('\\'): # Comandos
+            if msg == '\\q': # Sair
                 if self.dst is not None: # De conversas
                     self.dst = None
                 else: # Do programa (desconectar)
                     self.disconnect()
                     quit()
-            elif cmd[:cmd.find(' ')] == '\\send': # Enviar arquivo
-                filename = cmd[cmd.find(' ')+1:]
+            elif msg[:msg.find(' ')] == '\\send': # Enviar arquivo
+                filename = msg[msg.find(' ')+1:]
                 self.sendFile(self.dst, filename)
         else:
-            self.sendMessage(self.dst, cmd)
+            self.sendMessage(self.dst, msg)
 
-    def interpretMessage(self, mtype, src, dst, msg) -> bool:
+    def interpretPackage(self, pkg) -> bool:
+        mtype, src, dst, msg = pkg
         interrupt = False
         match(mtype):
             case MsgType.FWDMSG.value:
-                self.registerMessage(f"{src}: {msg}")
+                self.registerMessage(src, f"{src}: {msg}")
             case MsgType.FWDFL.value:
                 self.downloadReceivedFile(src, filename = msg)
             case MsgType.SERVER.value:
-                self.registerMessage(f"[SERVER] {msg}")
+                self.registerMessage(self.dst, f"[SERVER] {msg}")
             case MsgType.ERRMSG.value:
-                self.registerMessage(f"[ERROR] The server reported an error: {msg}")
+                self.registerMessage(self.dst, f"[ERROR] The server reported an error: {msg}")
                 interrupt = True
             case MsgType.DISCNT.value:
-                self.registerMessage(f"[SERVER] Disconnected from server: {msg}")
+                self.registerMessage(self.dst, f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
+            case MsgType.USRONL.value:
+                self.online_users = msg[2:-3].split("', '")
+                self.notifyGUI()
             case _:
                 pass
         return interrupt
@@ -232,14 +276,7 @@ class Cliente:
     def start_receive_loop(self):
         def receive_messages():
             while self.isConnected():
-                try:
-                    msg_type, src, dst, msg = self.receivePackage()
-                    interrupt = self.interpretMessage(msg_type, src, dst, msg)
-                    if interrupt:
-                        break
-
-                except Exception as e:
-                    print(f"Error receiving message: {e}")
+                if self.interpretPackage( self.receivePackage() ):
                     break
             self.disconnect()
 
@@ -247,20 +284,35 @@ class Cliente:
         thread.start()
 
     def start(self, server_addr, server_port):
+        """
+        Even though this method is only serving as an alias for self.connect,
+        I'll keep it. This is because we might want to do something else
+        during start-up.
+        """
         self.connect(server_addr, server_port)
+
+    def startInTerminal(self, server_addr, server_port):
+        self.start(server_addr, server_port)
+        print("Por favor, autentique-se:")
+        username = input("Usuário: ")
+
+        if not self.authenticate(username=username, passwd=''):
+            print("[!] A autenticação falhou.")
+            return
+
         self.start_receive_loop()
         while True:
             if (self.dst is None):
                 usr = input("Escolha um usuário para conversar: ")
                 if usr.startswith('\\'):
-                    self.intepretCommand(usr)
+                    self.interpretMessage(usr)
                 self.dst = usr
                 self.getMsgHistoryWithUsr(self.dst) # iniciar histórico de conversa com dst
 
             else:
                 msg = input(f"> ")
                 print('\033[1A' + '\033[K', end='')
-                self.intepretCommand(msg)
+                self.interpretMessage(msg)
 
 if __name__ == "__main__":
     import argparse
@@ -269,4 +321,4 @@ if __name__ == "__main__":
     parser.add_argument("--port", default=8080, type=int)
     args = parser.parse_args()
 
-    Cliente().start(args.host, args.port)
+    Cliente().startInTerminal(args.host, args.port)
