@@ -82,21 +82,21 @@ class Servidor():
         return self.online_users[usr][1]
 
     def addUser(self, usr, socket, addr) -> bool:
-        ret, msg = False, None
+        success, msg = False, None
         if usr not in self.online_users:
             self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
             self.online_users[usr] = (socket,addr)
             msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, f"Bem vindo, {usr}!")
-            ret = True
-
-            # notify clients
-            self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
-            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
+            success = True
         else:
             msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
-
+        
         self.sendPackage(socket, msg)
-        return ret
+        if success: # notify clients
+            self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
+            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
+            
+        return success
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
