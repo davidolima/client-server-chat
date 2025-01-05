@@ -2,6 +2,7 @@ import socket
 import warnings
 import threading
 import struct
+import json
 from typing import *
 
 from crypto import Criptografia, MsgType
@@ -80,6 +81,46 @@ class Servidor():
 
     def getUserAddr(self, usr) -> Tuple[str, int]:
         return self.online_users[usr][1]
+    
+    def registerUser(self, socket: socket.socket, username: str, passwd: str):
+        """
+        Registra um usuário no no arquivo de registros
+        """
+
+        with open('registers.json') as f:
+            data = json.load(f)
+
+        for usuario in data:
+            if usuario['username'] == username:
+                self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, f'Nome de usuário {username} já existe.'))
+                f.close()
+                self.log(f'Cadastro falhou! Usuário {username} já existe.', logtype='info')
+                return False
+            
+        data.append({'username': username, 'password': passwd})
+
+        with open('registers.json', 'w') as f:
+            json.dump(data, f)
+
+        self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, f'Usuário {username} registrado com sucesso.'))
+        f.close()
+        self.log(f'Usuario {username} cadastrado.')
+        return True
+
+    def checkUserCredentials(self, socket: socket.socket, username: str, passwd: str):
+        """
+        Verifica se as credenciais do usuário são válidas
+        """
+        with open('registers.json') as f:
+            data = json.load(f)
+        for usuario in data:
+            if usuario['username'] == username and usuario['password'] == passwd:
+                self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, 'Credenciais verificadas.'))
+                f.close()
+                return True
+        f.close()
+        self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, 'Credenciais inválidas.'))
+        return False
 
     def addUser(self, usr, socket, addr) -> bool:
         success, msg = False, None
@@ -171,7 +212,7 @@ class Servidor():
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
         self.sendFileUsr(MsgType.FWDFL, src, dst, fnm, chunks)
 
-    def interpretMessage(self, mtype: MsgType, src: str, dst: str | socket.socket, msg: str | Tuple[str, int]):
+    def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | socket.socket, msg: str | Tuple[str, int]):
         match (mtype):
             case MsgType.CONNCT.value:
                 assert(type(src) == str and\
@@ -192,7 +233,15 @@ class Servidor():
 
             case  MsgType.FWDFL.value:
                 assert(type(src) == str and type(dst) == str and type(msg) == str)
-                self.recieveFilePackage(src, dst, fnm = msg)               
+                self.recieveFilePackage(src, dst, fnm = msg)
+
+            case MsgType.CKLG.value:
+                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
+                self.checkUserCredentials(socket = src, username = dst, passwd = msg)   
+
+            case MsgType.RGUSR.value:
+                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
+                self.registerUser(src, username = dst, passwd = msg)  
 
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
@@ -233,6 +282,8 @@ class Servidor():
                 elif mtype == MsgType.FWDFL.value:
                     #Receber o nome do arquivo e enviar para o dst
                     self.interpretMessage(mtype, src, dst, msg)
+                elif mtype == MsgType.CKLG.value or mtype == MsgType.RGUSR.value:
+                    self.interpretMessage(mtype, client_socket, dst, msg)
                 else:
                     self.interpretMessage(mtype, src, dst, msg)
 

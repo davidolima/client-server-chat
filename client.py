@@ -155,6 +155,23 @@ class Cliente:
         #print(data)
         msg_type, src, dst, msg = Criptografia.decode_msg(data)
         return msg_type, src, dst, msg
+    
+    def checkUserCredentials(self, msg_type, username, passwd):
+        self.sendPackage(msg_type, username, passwd)
+        mtype, _, _, msg = self.receivePackage()
+        if mtype == MsgType.ACCEPT.value:
+            return True, msg
+        else:
+            return False, msg
+    
+    def registerUser(self, username, passwd): 
+        self.sendPackage(MsgType.RGUSR, username, passwd)
+        mtype, _, _, msg = self.receivePackage()
+        if mtype == MsgType.ACCEPT.value:
+            return True
+        else:
+            print("[Error]", msg)
+        return False
 
     def authenticate(self, username, passwd) -> bool:
         """
@@ -169,8 +186,15 @@ class Cliente:
         self.username = username.replace(' ', '_').replace('*','')
         assert(passwd == passwd) # FIXME: `passwd` is unused. Use it in authentication
 
+        sucess, retorno =  self.checkUserCredentials(MsgType.CKLG, username, passwd)
+        if not sucess:
+            print("[Error]", retorno)
+            return False
+
         addr, port = self.socket.getsockname()
+
         self.sendPackage(MsgType.CONNCT, str(addr), str(port))
+
         mtype, _, _, msg = self.receivePackage()
 
         if mtype == MsgType.ACCEPT.value:
@@ -303,7 +327,7 @@ class Cliente:
         print("Por favor, autentique-se:")
         username = input("Usuário: ")
 
-        if not self.authenticate(username=username, passwd=''):
+        if not self.authenticate(username=username, passwd='1234'):
             print("[!] A autenticação falhou.")
             return
 
