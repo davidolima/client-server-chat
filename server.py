@@ -1,3 +1,4 @@
+import os
 import socket
 import warnings
 import threading
@@ -17,6 +18,7 @@ class Servidor():
         self.max_connections = max_connections
 
         self.online_users = {}
+        self.user_reg_file = "./registers.json"
 
         self.log("Setting up server...")
         self.socket = self._init_socket(address)
@@ -87,7 +89,7 @@ class Servidor():
         Registra um usuário no no arquivo de registros
         """
 
-        with open('registers.json') as f:
+        with open(self.getUserRegFile()) as f:
             data = json.load(f)
 
         for usuario in data:
@@ -99,7 +101,7 @@ class Servidor():
             
         data.append({'username': username, 'password': passwd})
 
-        with open('registers.json', 'w') as f:
+        with open(self.getUserRegFile(), 'w') as f:
             json.dump(data, f)
 
         self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, f'Usuário {username} registrado com sucesso.'))
@@ -296,6 +298,13 @@ class Servidor():
             self.log(f" <<< {client_addr} disconnected.")
             self.log(f"Online users: {self.getOnlineUsers()}")
 
+    def getUserRegFile(self) -> str:
+        # Create user reg file if it doesn't exist
+        if not os.path.exists(self.user_reg_file):
+            with open(self.user_reg_file, 'w') as f:
+                f.write('[]')
+
+        return self.user_reg_file
 
     def start(self):
         while True:
