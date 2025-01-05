@@ -163,6 +163,15 @@ class Cliente:
             return True, msg
         else:
             return False, msg
+    
+    def registerUser(self, username, passwd): 
+        self.sendPackage(MsgType.RGUSR, username, passwd)
+        mtype, _, _, msg = self.receivePackage()
+        if mtype == MsgType.ACCEPT.value:
+            return True
+        else:
+            print("[Error]", msg)
+        return False
 
     def authenticate(self, username, passwd) -> bool:
         """

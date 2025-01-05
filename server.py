@@ -81,6 +81,31 @@ class Servidor():
 
     def getUserAddr(self, usr) -> Tuple[str, int]:
         return self.online_users[usr][1]
+    
+    def registerUser(self, socket: socket.socket, username: str, passwd: str):
+        """
+        Registra um usuário no no arquivo de registros
+        """
+
+        with open('registers.json') as f:
+            data = json.load(f)
+
+        for usuario in data:
+            if usuario['username'] == username:
+                self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, f'Nome de usuário {username} já existe.'))
+                f.close()
+                self.log(f'Cadastro falhou! Usuário {username} já existe.', logtype='info')
+                return False
+            
+        data.append({'username': username, 'password': passwd})
+
+        with open('registers.json', 'w') as f:
+            json.dump(data, f)
+
+        self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, f'Usuário {username} registrado com sucesso.'))
+        f.close()
+        self.log(f'Usuario {username} cadastrado.')
+        return True
 
     def checkUserCredentials(self, socket: socket.socket, username: str, passwd: str):
         """
@@ -94,7 +119,7 @@ class Servidor():
                 f.close()
                 return True
         f.close()
-        self.sendPackage(socket, Criptografia.encode_msg(MsgType.ERRMSG, 'server', username, 'Credenciais inválidas.'))
+        self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, 'Credenciais inválidas.'))
         return False
 
     def addUser(self, usr, socket, addr) -> bool:
@@ -212,7 +237,11 @@ class Servidor():
 
             case MsgType.CKLG.value:
                 assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
-                self.checkUserCredentials(src, username = dst, passwd = msg)   
+                self.checkUserCredentials(socket = src, username = dst, passwd = msg)   
+
+            case MsgType.RGUSR.value:
+                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
+                self.registerUser(src, username = dst, passwd = msg)  
 
             case _:
                 self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
@@ -253,7 +282,7 @@ class Servidor():
                 elif mtype == MsgType.FWDFL.value:
                     #Receber o nome do arquivo e enviar para o dst
                     self.interpretMessage(mtype, src, dst, msg)
-                elif mtype == MsgType.CKLG.value:
+                elif mtype == MsgType.CKLG.value or mtype == MsgType.RGUSR.value:
                     self.interpretMessage(mtype, client_socket, dst, msg)
                 else:
                     self.interpretMessage(mtype, src, dst, msg)

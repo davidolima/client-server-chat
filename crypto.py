@@ -19,6 +19,7 @@ class MsgType(Enum):
     FWDFL  = 7 # Forward File
     USRONL = 8 # Usuários online
     CKLG = 9 # Checagem de login
+    RGUSR = 10 # Registro de usuário
 
 class Criptografia:
     @staticmethod
