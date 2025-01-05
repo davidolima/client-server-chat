@@ -2,6 +2,7 @@ import socket
 import warnings
 import threading
 from typing import *
+import struct
 
 from crypto import Criptografia, MsgType
 

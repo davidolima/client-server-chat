@@ -9,10 +9,12 @@ import warnings
 from typing import *
 from time import sleep
 import struct
+import os
 
 import threading
 
 from crypto import Criptografia, MsgType
+import login
 
 MSGLEN = 1024
 RECONNECT_TRIES = 3
