@@ -18,6 +18,7 @@ class MsgType(Enum):
     SERVER = 6 # Requisição para o servidor
     FWDFL  = 7 # Forward File
     USRONL = 8 # Usuários online
+    CKLG = 9 # Checagem de login
 
 class Criptografia:
     @staticmethod
