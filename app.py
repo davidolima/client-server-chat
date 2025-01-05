@@ -69,19 +69,23 @@ class App(ttk.Frame):
         Layout da tela de login
         """
 
-        tk.Label(self.root, text="Autentique-se", font=("Arial", 16)).grid(row=0, column=0, columnspan=2, pady=10)
-        tk.Label(self.root, text="Usuário:").grid(row=1, column=0, pady=5)
-        tk.Label(self.root, text="Senha:").grid(row=2, column=0, pady=5)
+        tk.Label(self.root, text="Autentique-se", font=("Arial", 16)).grid(row=0, column=0, columnspan=4, pady=15)
+        tk.Label(self.root, text="Usuário:").grid(row=1, column=0, pady=5, padx=5)
+        tk.Label(self.root, text="Senha:").grid(row=2, column=0, pady=5, padx=5)
 
         self.username_box = tk.Entry(self.root)
-        self.username_box.grid(row=1, column=1, pady=5)
+        self.username_box.grid(row=1, column=1, columnspan=3, pady=5, padx=5)
 
         self.password_box = tk.Entry(self.root, show="*")
-        self.password_box.grid(row=2, column=1, pady=5)
+        self.password_box.grid(row=2, column=1, columnspan=3, pady=5, padx=5)
+
+        self.register_button = tk.Button(self.root, text="Cadastrar", command=self.registerUser)
+        self.register_button.grid(row=3, column=0, columnspan=2, pady=10, padx=5)
 
         self.login_button = tk.Button(self.root, text="Login", command=self.authenticateUser)
-        self.login_button.grid(row=3, column=0, columnspan=2, pady=10)
+        self.login_button.grid(row=3, column=2, columnspan=2, pady=10, padx=5)
         self.login_button.bind('<Return>', lambda _: self.authenticateUser())
+
 
     def authenticateUser(self):
         usr = self.username_box.get()
@@ -97,6 +101,21 @@ class App(ttk.Frame):
             return
 
         messagebox.showinfo("A autenticação falhou", "Usuário ou senha inválidos!")
+
+    def registerUser(self):
+        usr = self.username_box.get()
+        pwd = self.password_box.get()
+
+        if not usr or not pwd:
+            messagebox.showinfo("A autenticação falhou", "Por favor, preencha os dois campos.")
+            return
+
+        error_msg = self.client.registerUser(usr, pwd)
+        if not error_msg:
+            messagebox.showinfo("Usuário cadastrado com sucesso", "Agora você pode logar.")
+            return
+
+        messagebox.showinfo("Erro durante o cadastro", str(error_msg))
 
     def setupChatLayout(self):
         """
