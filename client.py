@@ -14,7 +14,6 @@ import os
 import threading
 
 from crypto import Criptografia, MsgType
-import login
 
 MSGLEN = 1024
 RECONNECT_TRIES = 3
@@ -25,10 +24,8 @@ class Cliente:
     Classe cliente.
     """
 
-    def __init__(self, login: login.Login):
+    def __init__(self):
         self.socket = None
-        self.login = login
-        self.username = self.login.getUsername()
         self.dst = None
         self.online_users = []
 
