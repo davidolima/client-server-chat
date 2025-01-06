@@ -4,16 +4,16 @@
 # [X] cada cliente deve poder se comunicar com outro cliente usando o nome de usuario (semelhante ao que ocorre no WhatsApp atraves do numero de telefone)
 # [  ] (OPCIONAL) clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
 
+import os
+import struct
 import socket
 import warnings
-from typing import *
-from time import sleep
-import struct
-
 import threading
+from time import sleep
 
-import os
+from typing import *
 
+import rsa
 from crypto import Criptografia, MsgType
 
 MSGLEN = 1024
@@ -29,14 +29,18 @@ class Cliente:
         self.socket = None
         self.username = "user"
         self.dst = None
-        self.online_users = []
+        self.online_users = {}
 
         self.host: str = ''
         self.port: int = -1
 
+        self.pub_rsa_key, self.priv_rsa_key = Criptografia.generate_rsa_keys()
+
         self.msg_history = {}
         self.unread = []
         self.gui = None
+
+        self.recv_msgs = True
 
     def registerGUI(self, gui):
         """
@@ -101,7 +105,7 @@ class Cliente:
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
 
-        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{os.path.basename(filename)}')
+        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{os.path.basename(filename)}', pubkey=self.getUsrPubKey(dst))
         self.socket.sendall(enc_msg) 
 
         fsz = os.path.getsize(filename)
@@ -119,6 +123,13 @@ class Cliente:
                 file_data = file.read(1024)
         file.close()  
 
+    def getUsrPubKey(self, usr) -> rsa.PublicKey | None:
+        if usr not in self.online_users.keys():
+            return
+        print(self.online_users[usr])
+        print(Criptografia.pubkey_from_str(self.online_users[usr]))
+        return Criptografia.pubkey_from_str(self.online_users[usr])
+
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
         self.registerMessage(self.dst, f"Você: {msg}")
@@ -132,7 +143,9 @@ class Cliente:
             return
         assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
-        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg)
+        dst_pubkey = self.getUsrPubKey(dst)
+        assert dst_pubkey is not None
+        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg, pubkey=dst_pubkey)
         try:
             self.socket.sendall(enc_msg)
             #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
@@ -183,7 +196,6 @@ class Cliente:
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
         self.username = username.replace(' ', '_').replace('*','')
-        assert(passwd == passwd) # FIXME: `passwd` is unused. Use it in authentication
 
         sucess, retorno =  self.checkUserCredentials(MsgType.CKLG, username, passwd)
         if not sucess:
@@ -192,17 +204,24 @@ class Cliente:
 
         addr, port = self.socket.getsockname()
 
-        self.sendPackage(MsgType.CONNCT, str(addr), str(port))
+        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", str(self.getPublicKey()).replace('PublicKey', ''))
 
-        mtype, _, _, msg = self.receivePackage()
+        mtype, server_pubkey, _, msg = self.receivePackage()
 
         if mtype == MsgType.ACCEPT.value:
+            self.server_pub_key = server_pubkey
             return True
         elif mtype == MsgType.DENIED.value:
             print("[Error]", msg)
         else:
             print("Unexpected return type when trying to login:", mtype)
         return False
+
+    def getPublicKey(self) -> rsa.PublicKey:
+        return self.pub_rsa_key
+
+    def getCachedOnlineUsers(self) -> list[str]:
+        return list(self.online_users.keys())
 
     def registerMessage(self, author, msg):
         self.getMsgHistoryWithUsr(author)
@@ -297,7 +316,9 @@ class Cliente:
                 self.registerMessage(self.dst, f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
             case MsgType.USRONL.value:
-                self.online_users = msg[2:-3].split("', '")
+                # this monstrosity parses the received message into a list of usernames and public keys
+                name_and_keys = [x[1:-1].split("\',\'") for x in msg[2:-3].replace(', ', ',').split("),(")]
+                self.online_users = {x[0]: x[1] for x in name_and_keys}
                 self.notifyGUI()
             case _:
                 pass
@@ -305,7 +326,7 @@ class Cliente:
 
     def start_receive_loop(self):
         def receive_messages():
-            while self.isConnected():
+            while self.isConnected() and self.recv_msgs:
                 if self.interpretPackage( self.receivePackage() ):
                     break
             self.disconnect()

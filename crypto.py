@@ -5,6 +5,8 @@
 from typing import *
 import struct
 
+import rsa
+
 from enum import Enum
 import warnings
 
@@ -18,12 +20,12 @@ class MsgType(Enum):
     SERVER = 6 # Requisição para o servidor
     FWDFL  = 7 # Forward File
     USRONL = 8 # Usuários online
-    CKLG = 9 # Checagem de login
-    RGUSR = 10 # Registro de usuário
+    CKLG   = 9 # Checagem de login
+    RGUSR  = 10 # Registro de usuário
 
 class Criptografia:
     @staticmethod
-    def encode_msg(msg_type: MsgType, src: str, dst: str, msg: str, encoding='utf-8') -> bytes:
+    def encode_msg(msg_type: MsgType, src: str, dst: str, msg: str, pubkey: rsa.PublicKey, encoding='utf-8') -> bytes:
         if len(msg) > 956:
             # TODO: Tamanho dinâmico de mensagens
             warnings.warn("Mensagem muito grande para ser enviada.")
@@ -36,11 +38,11 @@ class Criptografia:
             msg_type.value,
             len(src), b_src,
             len(dst), b_dst,
-            len(msg), b_msg
+            len(msg), rsa.encrypt(b_msg, pubkey)
         )
         
     @staticmethod
-    def decode_msg(data: bytes, encoding='utf-8') -> tuple[MsgType, str, str, str]:
+    def decode_msg(data: bytes, priv_key: rsa.PrivateKey, encoding='utf-8') -> tuple[MsgType, str, str, str]:
         """
         Decodifica uma mensagem em bytes:
          - [1] Tipo da mensagem (Ver MsgType)
@@ -58,6 +60,26 @@ class Criptografia:
         mtype = decoded_msg[0]
         src = decoded_msg[2][:decoded_msg[1]].decode(encoding)
         dst = decoded_msg[4][:decoded_msg[3]].decode(encoding)
-        msg = decoded_msg[6][:decoded_msg[5]+1].decode(encoding)
+        msg = decoded_msg[6][:decoded_msg[5]].decode(encoding)
 
         return mtype, src, dst, msg
+
+    @staticmethod
+    def generate_rsa_keys() -> Tuple[rsa.PublicKey, rsa.PrivateKey]:
+        pub, priv = rsa.newkeys(64)
+        return (pub, priv)
+
+    @staticmethod
+    def pubkey_from_str(s: str) -> rsa.PublicKey:
+        """
+        takes in strings (1234, 5678)
+        and returns a public key with
+        n=1234 and e=5678.
+        """
+        assert s is not None
+        n, e = map(int, s[1:-1].strip().split(','))
+        print("SPLIT KEY:", n, e)
+        return rsa.PublicKey(n=n, e=e)
+    
+if __name__ == '__main__':
+    pass

@@ -194,7 +194,7 @@ class App(ttk.Frame):
 
     def update(self):
         self.displayMessages()
-        self.updateUsersList(self.client.online_users)
+        self.updateUsersList(self.client.getCachedOnlineUsers())
 
 if __name__ == "__main__":
     app = App(

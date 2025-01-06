@@ -6,6 +6,8 @@ import struct
 import json
 from typing import *
 
+import rsa
+
 from crypto import Criptografia, MsgType
 
 class Servidor():
@@ -24,6 +26,8 @@ class Servidor():
         self.socket = self._init_socket(address)
         self.log("Server is up. Waiting for connections...")
 
+        self.rsa_pubkey, self.rsa_privkey = Criptografia.generate_rsa_keys()
+
     def _init_socket(self, address) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(address)
@@ -41,7 +45,7 @@ class Servidor():
         print(prefix, msg, **args)
 
     def forwardMessage(self, src, dst, msg):
-        if dst not in self.online_users:
+        if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot forward message. User `{dst}` is not online.")
             return
 
@@ -64,7 +68,7 @@ class Servidor():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
 
-        enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
+        enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg, pubkey=self.getUserPubKey(dst))
 
         client_socket = self.getUserSocket(dst)
         if not client_socket:
@@ -83,7 +87,14 @@ class Servidor():
 
     def getUserAddr(self, usr) -> Tuple[str, int]:
         return self.online_users[usr][1]
-    
+
+    def getUserPubKey(self, usr) -> rsa.PublicKey:
+        return rsa.PublicKey(
+        )
+
+    def getServerPubKey(self) -> rsa.PublicKey:
+        return self.rsa_pubkey
+
     def registerUser(self, socket: socket.socket, username: str, passwd: str):
         """
         Registra um usuário no no arquivo de registros
@@ -124,20 +135,20 @@ class Servidor():
         self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, 'Credenciais inválidas.'))
         return False
 
-    def addUser(self, usr, socket, addr) -> bool:
+    def addUser(self, usr, socket, addr, pub_key) -> bool:
         success, msg = False, None
         if usr not in self.online_users:
             self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
-            self.online_users[usr] = (socket,addr)
-            msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, f"Bem vindo, {usr}!")
+            self.online_users[usr] = (socket, addr, pub_key)
+            msg = Criptografia.encode_msg(MsgType.ACCEPT, self.getServerPubKey(), usr, f"Bem vindo, {usr}!", pubkey=pub_key)
             success = True
         else:
-            msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
+            msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor', pubkey=pub_key)
         
         self.sendPackage(socket, msg)
         if success: # notify clients
             self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
-            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
+            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
             
         return success
 
@@ -148,9 +159,11 @@ class Servidor():
                 break
 
         # notify clients
-        self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
+        self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
 
-    def getOnlineUsers(self):
+    def getOnlineUsers(self, pubkeys=False):
+        if pubkeys:
+            return [(k,v[2]) for k,v in self.online_users.items()]
         return list(self.online_users.keys())
     
     def sendFileUsr(self, msg_type: MsgType, src: str, dst: str, fnm: str, file_data: bytes):
@@ -216,22 +229,12 @@ class Servidor():
 
     def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | socket.socket, msg: str | Tuple[str, int]):
         match (mtype):
-            case MsgType.CONNCT.value:
-                assert(type(src) == str and\
-                       type(dst) == socket.socket and\
-                       type(msg) == tuple)
-                self.addUser(src, socket=dst, addr=msg)
-
             case MsgType.DISCNT.value:
                 self.removeUser(src)
 
             case MsgType.FWDMSG.value:
                 assert(type(src) == str and type(dst) == str)
                 self.forwardMessage(src, dst, msg)
-
-            case MsgType.SERVER.value:
-                assert(type(src) == str and type(dst) == str and type(msg) == str)
-                self.interpretServerRequest(src=src, cmd=dst, options=msg)
 
             case  MsgType.FWDFL.value:
                 assert(type(src) == str and type(dst) == str and type(msg) == str)
@@ -278,7 +281,7 @@ class Servidor():
 
                 mtype, src, dst, msg = Criptografia.decode_msg(data)
                 if mtype == MsgType.CONNCT.value:
-                    self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
+                    self.addUser(src, client_socket, client_addr, msg)
                 elif mtype == MsgType.DISCNT.value:
                     break
                 elif mtype == MsgType.FWDFL.value:
