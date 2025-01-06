@@ -16,7 +16,7 @@ from typing import *
 import rsa
 from crypto import Criptografia, MsgType
 
-MSGLEN = 1024
+MSGLEN = 2048
 RECONNECT_TRIES = 3
 RECONNECT_TIMEOUT = 5
 
@@ -63,7 +63,11 @@ class Cliente:
         self.host, self.port = host, port
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect( (self.host, self.port) )
+        try:
+            self.socket.connect( (self.host, self.port) )
+        except ConnectionRefusedError:
+            print("ERROR: Server is offline.")
+            quit(0)
 
     def disconnect(self) -> None:
         if not self.isConnected():
@@ -113,18 +117,19 @@ class Cliente:
 
         # Enviando arquivo
         with open(filename, 'rb') as file:
-            file_data = file.read(1024)          
+            file_data = file.read(MSGLEN)
             total_sent = 0
             while total_sent < fsz:
                 sent = self.socket.send(file_data)
                 if sent == 0:
                     raise RuntimeError("Socket connection broken.")
                 total_sent += sent
-                file_data = file.read(1024)
+                file_data = file.read(MSGLEN)
         file.close()  
 
     def getUsrPubKey(self, usr) -> rsa.PublicKey | None:
         if usr not in self.online_users.keys():
+            print(usr, self.online_users.keys())
             return
         print(self.online_users[usr])
         print(Criptografia.pubkey_from_str(self.online_users[usr]))
@@ -134,7 +139,7 @@ class Cliente:
         self.sendPackage(MsgType.FWDMSG, dst, msg)
         self.registerMessage(self.dst, f"Você: {msg}")
 
-    def sendPackage(self, msg_type: MsgType, dst: str, msg: str):
+    def sendPackage(self, msg_type: MsgType, dst: str, msg: str, encrypt=False):
         """
         Baseado em: https://docs.python.org/3/howto/sockets.html
         """
@@ -143,8 +148,11 @@ class Cliente:
             return
         assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
-        dst_pubkey = self.getUsrPubKey(dst)
-        assert dst_pubkey is not None
+        dst_pubkey = None
+        if encrypt:
+            dst_pubkey = self.getUsrPubKey(dst)
+            assert dst_pubkey is not None
+
         enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg, pubkey=dst_pubkey)
         try:
             self.socket.sendall(enc_msg)
@@ -155,7 +163,7 @@ class Cliente:
             sleep(RECONNECT_TIMEOUT)
             self.reconnect()
 
-    def receivePackage(self) -> tuple[MsgType, str,str,str]:
+    def receivePackage(self, decrypt=False) -> tuple[MsgType, str,str,str]:
         """
         Baseado em: https://docs.python.org/3/howto/sockets.html
         """
@@ -164,9 +172,9 @@ class Cliente:
             return (MsgType.ERRMSG, '', '', '')
         assert(self.socket is not None)
 
-        data = self.socket.recv(1024)
+        data = self.socket.recv(MSGLEN)
         #print(data)
-        msg_type, src, dst, msg = Criptografia.decode_msg(data)
+        msg_type, src, dst, msg = Criptografia.decode_msg(data, self.priv_rsa_key if decrypt else None)
         return msg_type, src, dst, msg
     
     def checkUserCredentials(self, msg_type, username, passwd):
@@ -204,15 +212,16 @@ class Cliente:
 
         addr, port = self.socket.getsockname()
 
-        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", str(self.getPublicKey()).replace('PublicKey', ''))
+        pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
+        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey)
 
-        mtype, server_pubkey, _, msg = self.receivePackage()
+        mtype, _, _, server_pubkey = self.receivePackage(decrypt=False)
 
         if mtype == MsgType.ACCEPT.value:
-            self.server_pub_key = server_pubkey
+            self.server_pub_key = Criptografia.pubkey_from_str(server_pubkey)
             return True
         elif mtype == MsgType.DENIED.value:
-            print("[Error]", msg)
+            print("[Error]", server_pubkey)
         else:
             print("Unexpected return type when trying to login:", mtype)
         return False
@@ -277,7 +286,7 @@ class Cliente:
         total_received = 0
         with open(fpath, 'wb') as file:
             while total_received < fsz:
-                data = self.socket.recv(1024)
+                data = self.socket.recv(MSGLEN)
                 if not data:
                     break
                 file.write(data)

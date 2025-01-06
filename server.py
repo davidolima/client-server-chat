@@ -89,8 +89,7 @@ class Servidor():
         return self.online_users[usr][1]
 
     def getUserPubKey(self, usr) -> rsa.PublicKey:
-        return rsa.PublicKey(
-        )
+        return self.online_users[usr][2]
 
     def getServerPubKey(self) -> rsa.PublicKey:
         return self.rsa_pubkey
@@ -139,8 +138,12 @@ class Servidor():
         success, msg = False, None
         if usr not in self.online_users:
             self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
+            pub_key = Criptografia.pubkey_from_str(pub_key)
+            server_key = Criptografia.str_from_pubkey(self.getServerPubKey())
+            print("LEN SERVER KEY:", len(server_key))
+
             self.online_users[usr] = (socket, addr, pub_key)
-            msg = Criptografia.encode_msg(MsgType.ACCEPT, self.getServerPubKey(), usr, f"Bem vindo, {usr}!", pubkey=pub_key)
+            msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, server_key, pubkey=pub_key)
             success = True
         else:
             msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor', pubkey=pub_key)
@@ -185,7 +188,7 @@ class Servidor():
         client_socket.send(struct.pack('!I', fsz))
 
         # Envia dados do arquivo
-        buffer = 1024
+        buffer = 2048
         total_sent = 0
         while total_sent < fsz:
             end = min(total_sent + buffer, fsz)  # Define o tamanho do próximo bloco
@@ -218,7 +221,7 @@ class Servidor():
         chunks = b''
         total_received = 0
         while total_received < fsz:
-            data = src_socket.recv(1024)
+            data = src_socket.recv(2048)
             if not data:
                 break
             chunks += data
@@ -273,33 +276,27 @@ class Servidor():
 
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
         print(f" >>> {client_addr} connected.")
+        while True:
+            data = client_socket.recv(2048)
+            if not data: return
 
-        try:
-            while True:
-                data = client_socket.recv(1024)
-                if not data: return
+            mtype, src, dst, msg = Criptografia.decode_msg(data)
+            if mtype == MsgType.CONNCT.value:
+                self.addUser(src, client_socket, client_addr, msg)
+            elif mtype == MsgType.DISCNT.value:
+                break
+            elif mtype == MsgType.FWDFL.value:
+                #Receber o nome do arquivo e enviar para o dst
+                self.interpretMessage(mtype, src, dst, msg)
+            elif mtype == MsgType.CKLG.value or mtype == MsgType.RGUSR.value:
+                self.interpretMessage(mtype, client_socket, dst, msg)
+            else:
+                self.interpretMessage(mtype, src, dst, msg)
 
-                mtype, src, dst, msg = Criptografia.decode_msg(data)
-                if mtype == MsgType.CONNCT.value:
-                    self.addUser(src, client_socket, client_addr, msg)
-                elif mtype == MsgType.DISCNT.value:
-                    break
-                elif mtype == MsgType.FWDFL.value:
-                    #Receber o nome do arquivo e enviar para o dst
-                    self.interpretMessage(mtype, src, dst, msg)
-                elif mtype == MsgType.CKLG.value or mtype == MsgType.RGUSR.value:
-                    self.interpretMessage(mtype, client_socket, dst, msg)
-                else:
-                    self.interpretMessage(mtype, src, dst, msg)
-
-        except Exception as e:
-            self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
-
-        finally:
-            client_socket.close()
-            self.removeUser(client_addr)
-            self.log(f" <<< {client_addr} disconnected.")
-            self.log(f"Online users: {self.getOnlineUsers()}")
+                client_socket.close()
+        self.removeUser(client_addr)
+        self.log(f" <<< {client_addr} disconnected.")
+        self.log(f"Online users: {self.getOnlineUsers()}")
 
     def getUserRegFile(self) -> str:
         # Create user reg file if it doesn't exist
