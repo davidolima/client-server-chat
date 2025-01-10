@@ -53,43 +53,47 @@ class Servidor():
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
         self.sendPackageUsr(MsgType.FWDMSG, src, dst, msg)
 
-    def sendPackage(self, socket: socket.socket, msg_type: MsgType, src: str, dst: str, msg: str, pubkey: rsa.PublicKey | None =None):
+    def sendPackage(self, socket: socket.socket, msg_type: MsgType, src: str, dst: str, msg: str, pubkey: rsa.PublicKey | None = None):
         # Enviar msg
         # Baseado em: https://docs.python.org/3/howto/sockets.html
+        pkg = Criptografia.packMessage(msg_type, src, dst, msg, pubkey)
+
         total_sent = 0
-        while total_sent < len(msg):
-            print("TOTAL_SENT:", total_sent)
-            chunk = Criptografia.packMessage(msg_type, src, dst, msg[total_sent:])
-            sent = socket.send(chunk)
-            if sent == 0:
+        while total_sent < len(pkg):
+            sent = socket.send(pkg[total_sent:])
+            if not sent:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
+
+        self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
 
     def sendPackageUsr(self, msg_type: MsgType, src: str, dst:str, msg:str) -> None:
         if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
-
-        client_socket = self.getUserSocket(dst)
-        if not client_socket:
-            self.log(f"Socket for user `{dst}` is closed. Unable to forward message.", logtype='warn')
-            return
-
-        self.sendPackage(client_socket, msg_type, src, dst, msg)
-        self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
+        self.sendPackage(self.getUserSocket(dst), msg_type, src, dst, msg, pubkey=self.getUserPubKey(dst))
 
     def sendToAll(self, msg_type: MsgType, src: str, msg: str):
         for usr in self.online_users.keys():
             self.sendPackageUsr(msg_type, src, usr, msg)
 
     def getUserSocket(self, usr) -> socket.socket:
-        return self.online_users[usr][0]
+        try:
+            return self.online_users[usr][0]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find public key.")
 
     def getUserAddr(self, usr) -> Tuple[str, int]:
-        return self.online_users[usr][1]
+        try:
+            return self.online_users[usr][1]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find address.")
 
     def getUserPubKey(self, usr) -> rsa.PublicKey:
-        return self.online_users[usr][2]
+        try:
+            return self.online_users[usr][2]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find public key.")
 
     def getServerPubKey(self) -> rsa.PublicKey:
         return self.rsa_pubkey
@@ -141,7 +145,6 @@ class Servidor():
         success = False
         if usr not in self.online_users:
             self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
-            print("LEN SERVER KEY:", len(server_key))
             self.online_users[usr] = (socket, addr, pub_key)
             success = True
 
@@ -279,17 +282,18 @@ class Servidor():
                 self.log(f"Comando não reconhecido: `{cmd}`", logtype='info')
 
     def receivePackage(self, socket: socket.socket):
-        msg = b""
+        pkg = b""
         total_received = 0
         while total_received < PKG_SIZE:
             data = socket.recv(PKG_CHUNK_SIZE)
             if not data:
                 break
-            msg += data
+            pkg += data
             total_received += len(data)
 
-        #print(data)
-        msg_type, src, dst, msg = Criptografia.unpackMessage(msg)
+        #print(f"SERVER RECEIVED {len(pkg)} BYTES:", pkg)
+        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg)
+        self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
         return msg_type, src, dst, msg
 
     def connectionLoop(self, client_socket: socket.socket, client_addr: tuple[str, int]):

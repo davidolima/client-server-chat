@@ -35,6 +35,7 @@ class Cliente:
         self.port: int = -1
 
         self.pub_rsa_key, self.priv_rsa_key = Criptografia.generate_rsa_keys()
+        self.server_pub_key = None
 
         self.msg_history = {}
         self.unread = []
@@ -129,14 +130,11 @@ class Cliente:
 
     def getUsrPubKey(self, usr) -> rsa.PublicKey | None:
         if usr not in self.online_users.keys():
-            print(usr, self.online_users.keys())
             return
-        print(self.online_users[usr])
-        print(Criptografia.pubkey_from_str(self.online_users[usr]))
-        return Criptografia.pubkey_from_str(self.online_users[usr])
+        return self.online_users[usr]
 
     def sendMessage(self, dst, msg: str) -> None:
-        self.sendPackage(MsgType.FWDMSG, dst, msg)
+        self.sendPackage(MsgType.FWDMSG, dst, msg, encrypt=True)
         self.registerMessage(self.dst, f"Você: {msg}")
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str, encrypt=False):
@@ -153,17 +151,17 @@ class Cliente:
             dst_pubkey = self.getUsrPubKey(dst)
             assert dst_pubkey is not None
 
-        enc_msg = Criptografia.packMessage(msg_type, self.username, dst, msg)
+        enc_msg = Criptografia.packMessage(msg_type, self.username, dst, msg, dst_pubkey)
         try:
             self.socket.sendall(enc_msg)
-            #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+            #print(f"CLIENT SENT {len(enc_msg)} BYTES: {MsgType.FWDMSG} {self.username} {dst} {msg}")
         except socket.error as e:
             print(f"[!] Conexão perdida. ({e})")
             print(f"[!] Tentando reconectar em {RECONNECT_TIMEOUT}s...")
             sleep(RECONNECT_TIMEOUT)
             self.reconnect()
 
-    def receivePackage(self, decrypt=False) -> tuple[MsgType, str,str,str]:
+    def receivePackage(self, decrypt: bool = True) -> tuple[MsgType, str,str,str]:
         """
         Baseado em: https://docs.python.org/3/howto/sockets.html
         """
@@ -172,22 +170,32 @@ class Cliente:
             return (MsgType.ERRMSG, '', '', '')
         assert(self.socket is not None)
 
-        msg = b""
+        pkg = b''
         total_received = 0
         while total_received < PKG_SIZE:
-            data = self.socket.recv(PKG_CHUNK_SIZE)
-            if not data:
-                break
-            msg += data
-            total_received += len(data)
+            try:
+                data = self.socket.recv(min(PKG_CHUNK_SIZE, PKG_SIZE-total_received))
+                if not data:
+                    break
 
-        #print(data)
-        msg_type, src, dst, msg = Criptografia.unpackMessage(msg)
+                pkg += data
+                total_received += len(data)
+
+            except socket.error as e:
+                print(f"Socket error while receiving: {e}")
+                return (MsgType.ERRMSG, '', '', f'Socket error: {e}')
+
+        # Pad the package if we didn't receive enough data
+        if total_received < PKG_SIZE:
+            pkg += b'\0' * (PKG_SIZE - total_received)
+
+        #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
+        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt else None)
         return msg_type, src, dst, msg
     
     def checkUserCredentials(self, msg_type, username, passwd):
-        self.sendPackage(msg_type, username, passwd)
-        mtype, _, _, msg = self.receivePackage()
+        self.sendPackage(msg_type, username, passwd, encrypt=False)
+        mtype, _, _, msg = self.receivePackage(decrypt=False)
         if mtype == MsgType.ACCEPT.value:
             return True, msg
         else:
@@ -213,7 +221,7 @@ class Cliente:
 
         self.username = username.replace(' ', '_').replace('*','')
 
-        sucess, retorno =  self.checkUserCredentials(MsgType.CKLG, username, passwd)
+        sucess, retorno = self.checkUserCredentials(MsgType.CKLG, username, passwd)
         if not sucess:
             print("[Error]", retorno)
             return False
@@ -221,15 +229,15 @@ class Cliente:
         addr, port = self.socket.getsockname()
 
         pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
-        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey)
+        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey, encrypt=False)
 
-        mtype, _, _, server_pubkey = self.receivePackage(decrypt=False)
+        mtype, _, _, msg = self.receivePackage()
 
         if mtype == MsgType.ACCEPT.value:
-            self.server_pub_key = Criptografia.pubkey_from_str(server_pubkey)
+            self.server_pub_key = Criptografia.pubkey_from_str(msg)
             return True
         elif mtype == MsgType.DENIED.value:
-            print("[Error]", server_pubkey)
+            print("[Error]", msg)
         else:
             print("Unexpected return type when trying to login:", mtype)
         return False
@@ -333,8 +341,8 @@ class Cliente:
                 self.registerMessage(self.dst, f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
             case MsgType.USRONL.value:
-                # this monstrosity parses the received message into a list of usernames and public keys
                 self.online_users = Cliente.parse_online_users(msg)
+                print(self.online_users)
                 self.notifyGUI()
             case _:
                 pass
@@ -362,8 +370,9 @@ class Cliente:
         self.start(server_addr, server_port)
         print("Por favor, autentique-se:")
         username = input("Usuário: ")
+        passwd   = input("Senha: ")
 
-        if not self.authenticate(username=username, passwd='1234'):
+        if not self.authenticate(username=username, passwd=passwd):
             print("[!] A autenticação falhou.")
             return
 
@@ -383,11 +392,11 @@ class Cliente:
 
     @staticmethod
     def parse_online_users(online_usrs_package: str) -> Dict[str, rsa.PublicKey]:
-        print(online_usrs_package)
-        usr, pubkey = online_usrs_package.strip()[2:-2].split(", PublicKey")
-        usr = usr.replace('\'', '')
-        pubkey = Criptografia.pubkey_from_str(pubkey)
-        return {usr: pubkey}
+        # this monstrosity parses a string of structure
+        # "[('a', PrivateKey(12312,1231), ('b', PrivateKey(412321,1231231)))]"
+        # And returns the values as a list of tuples.
+        names_and_keys = [x.split(',PublicKey') for x in online_usrs_package.replace(' ', '').replace('\'','')[2:-2].split("),(")]
+        return {usr: Criptografia.pubkey_from_str(pubkey_str) for usr,pubkey_str in names_and_keys}
 
 if __name__ == "__main__":
     import argparse
