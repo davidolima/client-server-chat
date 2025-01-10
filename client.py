@@ -15,8 +15,8 @@ from typing import *
 
 import rsa
 from crypto import Criptografia, MsgType
+from crypto import PKG_SIZE, PKG_CHUNK_SIZE
 
-MSGLEN = 2048
 RECONNECT_TRIES = 3
 RECONNECT_TIMEOUT = 5
 
@@ -109,7 +109,7 @@ class Cliente:
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
 
-        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, f'received_{os.path.basename(filename)}', pubkey=self.getUsrPubKey(dst))
+        enc_msg = Criptografia.packMessage(msg_type, self.username, dst, f'received_{os.path.basename(filename)}')
         self.socket.sendall(enc_msg) 
 
         fsz = os.path.getsize(filename)
@@ -117,14 +117,14 @@ class Cliente:
 
         # Enviando arquivo
         with open(filename, 'rb') as file:
-            file_data = file.read(MSGLEN)
+            file_data = file.read(PKG_SIZE)
             total_sent = 0
             while total_sent < fsz:
                 sent = self.socket.send(file_data)
                 if sent == 0:
                     raise RuntimeError("Socket connection broken.")
                 total_sent += sent
-                file_data = file.read(MSGLEN)
+                file_data = file.read(PKG_SIZE)
         file.close()  
 
     def getUsrPubKey(self, usr) -> rsa.PublicKey | None:
@@ -153,7 +153,7 @@ class Cliente:
             dst_pubkey = self.getUsrPubKey(dst)
             assert dst_pubkey is not None
 
-        enc_msg = Criptografia.encode_msg(msg_type, self.username, dst, msg, pubkey=dst_pubkey)
+        enc_msg = Criptografia.packMessage(msg_type, self.username, dst, msg)
         try:
             self.socket.sendall(enc_msg)
             #print(f"Sent {len(enc_msg)} bytes: {MsgType.FWDMSG} {self.username} {dst} {msg}")
@@ -172,9 +172,17 @@ class Cliente:
             return (MsgType.ERRMSG, '', '', '')
         assert(self.socket is not None)
 
-        data = self.socket.recv(MSGLEN)
+        msg = b""
+        total_received = 0
+        while total_received < PKG_SIZE:
+            data = self.socket.recv(PKG_CHUNK_SIZE)
+            if not data:
+                break
+            msg += data
+            total_received += len(data)
+
         #print(data)
-        msg_type, src, dst, msg = Criptografia.decode_msg(data, self.priv_rsa_key if decrypt else None)
+        msg_type, src, dst, msg = Criptografia.unpackMessage(msg)
         return msg_type, src, dst, msg
     
     def checkUserCredentials(self, msg_type, username, passwd):
@@ -286,7 +294,7 @@ class Cliente:
         total_received = 0
         with open(fpath, 'wb') as file:
             while total_received < fsz:
-                data = self.socket.recv(MSGLEN)
+                data = self.socket.recv(PKG_SIZE)
                 if not data:
                     break
                 file.write(data)
@@ -326,8 +334,7 @@ class Cliente:
                 interrupt = True
             case MsgType.USRONL.value:
                 # this monstrosity parses the received message into a list of usernames and public keys
-                name_and_keys = [x[1:-1].split("\',\'") for x in msg[2:-3].replace(', ', ',').split("),(")]
-                self.online_users = {x[0]: x[1] for x in name_and_keys}
+                self.online_users = Cliente.parse_online_users(msg)
                 self.notifyGUI()
             case _:
                 pass
@@ -373,6 +380,14 @@ class Cliente:
                 msg = input(f"> ")
                 print('\033[1A' + '\033[K', end='')
                 self.interpretMessage(msg)
+
+    @staticmethod
+    def parse_online_users(online_usrs_package: str) -> Dict[str, rsa.PublicKey]:
+        print(online_usrs_package)
+        usr, pubkey = online_usrs_package.strip()[2:-2].split(", PublicKey")
+        usr = usr.replace('\'', '')
+        pubkey = Criptografia.pubkey_from_str(pubkey)
+        return {usr: pubkey}
 
 if __name__ == "__main__":
     import argparse
