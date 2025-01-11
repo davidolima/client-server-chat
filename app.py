@@ -2,7 +2,6 @@
 
 from typing import *
 from enum import Enum
-from socket import gethostname
 
 import tkinter as tk
 from tkinter import ttk
@@ -15,14 +14,14 @@ class ScreenState(Enum):
     CHAT = 1
 
 class App(ttk.Frame):
-    def __init__(self, root: tk.Tk, client: Cliente) -> None:
+    def __init__(self, root: tk.Tk, client: Cliente, addr: str, port: int) -> None:
         self.root = root
         self.root.title("Client")
         super().__init__(root, padding=10)
 
         self.message_box_content = ""
         self.client = client
-        self.client.start(gethostname(), 8080)
+        self.client.start(addr, port)
         self.client.registerGUI(self)
 
         self.screen_state = ScreenState.LOGIN
@@ -197,8 +196,17 @@ class App(ttk.Frame):
         self.updateUsersList(self.client.getCachedOnlineUsers())
 
 if __name__ == "__main__":
+    from socket import gethostname
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default=gethostname(), type=str)
+    parser.add_argument("--port", default=8080, type=int)
+    args = parser.parse_args()
+
     app = App(
         root   =   tk.Tk(),
-        client = Cliente()
+        client = Cliente(),
+        addr   = args.host,
+        port   = args.port
     )
     app.mainloop()
