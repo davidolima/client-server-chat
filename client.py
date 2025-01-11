@@ -1,8 +1,4 @@
-# TODO
-# [X] cada cliente se comunica com o servidor, que gerenciara a comunicacao entre clientes
-# [  ] cada cliente deve se cadastrar junto ao servidor como um usuario
-# [X] cada cliente deve poder se comunicar com outro cliente usando o nome de usuario (semelhante ao que ocorre no WhatsApp atraves do numero de telefone)
-# [  ] (OPCIONAL) clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
+# TODO: clientes podem se juntar a grupos multicast (semelhante ao que ocorre no whatsapp)
 
 import os
 import struct
@@ -189,7 +185,7 @@ class Cliente:
 
         #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
         msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt and (self.priv_rsa_key is not None) else None)
-        print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
+        #print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
         return msg_type, src, dst, msg
             
     def checkUserCredentials(self, msg_type, username, passwd):
@@ -379,6 +375,7 @@ class Cliente:
         self.start_receive_loop()
         while True:
             if (self.dst is None):
+                print("Usuários online:", self.getCachedOnlineUsers())
                 usr = input("Escolha um usuário para conversar: ")
                 if usr.startswith('\\'):
                     self.interpretMessage(usr)

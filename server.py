@@ -1,6 +1,5 @@
 import os
 import socket
-import warnings
 import threading
 import struct
 import json
@@ -12,7 +11,6 @@ from crypto import Criptografia, MsgType
 from crypto import PKG_SIZE, PKG_CHUNK_SIZE
 
 class Servidor():
-    
     """
     Classe do servidor.
     Baseado em: https://docs.python.org/3/howto/sockets.html
@@ -22,7 +20,6 @@ class Servidor():
 
         self.online_users = {}
         self.user_reg_file = "./registers.json"
-        self.address = address
 
         self.log("Setting up server...")
         self.socket = self._init_socket(address)
@@ -85,19 +82,20 @@ class Servidor():
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
 
-        # if pubkey:
-        #     msg = str(Criptografia.encrypt_chunked(msg.encode('utf-8'), pubkey))
-
         self.log(f"[{msg_type.name}] {src} -> {dst} ({len(msg)} bytes): {msg}", logtype="PACKAGE SENT")
 
     def sendPackageUsr(self, msg_type: MsgType, src: str, dst:str, msg:str) -> None:
         if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
+
+        # Do not encrypt messages that are being forwarded.
+        # They are encrypted before being sent by the client.
         if msg_type in (MsgType.FWDMSG, MsgType.FWDFL):
             self.sendPackage(self.getUserSocket(dst), msg_type, src, dst, msg)
         else:
             self.sendPackage(self.getUserSocket(dst), msg_type, src, dst, msg, pubkey=self.getUserPubKey(dst))
+
     def sendToAll(self, msg_type: MsgType, src: str, msg: str):
         for usr in self.online_users.keys():
             self.sendPackageUsr(msg_type, src, usr, msg)
@@ -186,7 +184,7 @@ class Servidor():
         if msg_type != MsgType.CKLG:
             self.log("Unexpected response from client. Disconnecting.")
             self.log(f"msg_type={msg_type} src={skt} dst={username} msg={passwd}")
-            self.removeUser(username)
+            self.removeUser(addr)
 
         if self.checkUserCredentials(socket = socket, username = username, passwd = passwd):
             self.online_users[usr] = (socket, addr, pubkey)
@@ -200,7 +198,7 @@ class Servidor():
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
-            if v[1] == usr_addr:
+            if v[1] == f"{usr_addr[0]}:{usr_addr[1]}":
                 self.online_users.pop(k)
                 break
 
@@ -275,7 +273,7 @@ class Servidor():
     def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | socket.socket, msg: str | Tuple[str, int]) -> bool:
         match (mtype):
             case MsgType.DISCNT:
-                self.removeUser(src)
+                self.removeUser(self.getUserAddr(src))
 
             case MsgType.FWDMSG:
                 assert(type(src) == str and type(dst) == str)
@@ -351,12 +349,20 @@ class Servidor():
         self.log(f" >>> {client_addr} connected.")
 
         self.connectClient(client_socket)
-        self.connectionLoop(client_socket, client_addr)
+        try:
+            self.connectionLoop(client_socket, client_addr)
+            client_socket.close()
+            self.removeUser(client_addr)
+            self.log(f" <<< {client_addr} disconnected.")
+            self.log(f"Online users: {self.getOnlineUsers()}")
 
-        client_socket.close()
-        self.removeUser(client_addr)
-        self.log(f" <<< {client_addr} disconnected.")
-        self.log(f"Online users: {self.getOnlineUsers()}")
+        except Exception as e:
+            self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
+
+        finally:
+            client_socket.close()
+            self.removeUser(client_addr)
+            self.log(f" <<< {client_addr} disconnected.")
 
     def getUserRegFile(self) -> str:
         # Create user reg file if it doesn't exist
