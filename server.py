@@ -190,7 +190,6 @@ class Servidor():
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
-            print(v[1], usr_addr)
             if v[1] == usr_addr:
                 self.online_users.pop(k)
                 break
@@ -204,7 +203,7 @@ class Servidor():
             return [(k,v[2]) for k,v in self.online_users.items()]
         return list(self.online_users.keys())
     
-    def sendFileUsr(self, msg_type: MsgType, src: str, dst: str, fnm: str, file_data: bytes):
+    def sendFileUsr(self, src: str, dst: str, fnm: str, file_data: bytes):
         if dst not in self.online_users:
             self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
             return
@@ -215,8 +214,7 @@ class Servidor():
             return
 
         # Envia informações da transação
-        enc_msg = Criptografia.packMessage(msg_type, src, dst, fnm.replace('\x00', ''))
-        client_socket.sendall(enc_msg) 
+        self.sendPackageUsr(MsgType.FWDFL, src, dst, fnm.replace('\x00', ''))
 
         # Envia tamanho do arquivo
         fsz = len(file_data)
@@ -231,7 +229,7 @@ class Servidor():
             if sent == 0:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
-        self.logPackage(msg_type, src, dst, total_sent)
+        self.logPackage(MsgType.FWDFL, src, dst, total_sent)
     
     def getFileSize(self, sock) -> int:
         received = 0
@@ -262,7 +260,7 @@ class Servidor():
             total_received += len(data)
         
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
-        self.sendFileUsr(MsgType.FWDFL, src, dst, fnm, chunks)
+        self.sendFileUsr(src, dst, fnm, chunks)
 
     def receivePackage(self, socket: socket.socket):
         pkg = b""

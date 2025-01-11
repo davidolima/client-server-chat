@@ -110,16 +110,15 @@ class Cliente:
         quit(0)
 
     def sendFile(self, dst, filename) -> None:
-        self.sendFilePackage(MsgType.FWDFL, dst, filename)
+        self.sendFilePackage(dst, filename)
         self.registerMessage(self.dst, f"[!] Você enviou um arquivo para {dst}: {filename}")
 
-    def sendFilePackage(self, msg_type: MsgType, dst: str, filename: str):
+    def sendFilePackage(self, dst: str, filename: str):
         if not self.isConnected():
             warnings.warn("Not connected to server.")
             return (MsgType.ERRMSG, '', '', '')
 
-        enc_msg = Criptografia.packMessage(msg_type, self.username, dst, f'received_{os.path.basename(filename)}')
-        self.socket.sendall(enc_msg) 
+        self.sendPackage(MsgType.FWDFL, dst, f'received_{os.path.basename(filename)}')
 
         fsz = os.path.getsize(filename)
         self.socket.send(struct.pack('!I', fsz))
@@ -200,8 +199,13 @@ class Cliente:
         if total_received < PKG_SIZE:
             pkg += b'\0' * (PKG_SIZE - total_received)
 
+        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, None)
+        should_decrypt = decrypt and (self.priv_rsa_key is not None) and (msg_type != MsgType.FWDFL)
+
         #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
-        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt and (self.priv_rsa_key is not None) else None)
+        if should_decrypt:
+            msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key)
+
         #print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
         return msg_type, src, dst, msg
 
