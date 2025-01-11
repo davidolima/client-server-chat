@@ -66,6 +66,18 @@ class Cliente:
             print("ERROR: Server is offline.")
             quit(0)
 
+        # Trade RSA keys with server
+        pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
+        self.sendPackage(MsgType.CONNCT, f"{self.host}:{self.port}", pubkey, encrypt=False)
+
+        mtype, _, _, msg = self.receivePackage(decrypt=True)
+        if mtype == MsgType.ACCEPT:
+            self.server_pub_key = Criptografia.pubkey_from_str(msg)
+        elif mtype == MsgType.DENIED:
+            print("[Error]", msg)
+        else:
+            print("Unexpected return type when trying to login:", mtype)
+
     def disconnect(self) -> None:
         if not self.isConnected():
             warnings.warn("Attempted to disconnect without a connection.")
@@ -215,20 +227,6 @@ class Cliente:
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
         self.username = username.replace(' ', '_').replace('*','')
-
-        addr, port = self.socket.getsockname()
-        pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
-        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey, encrypt=False)
-
-        mtype, _, _, msg = self.receivePackage(decrypt=True)
-        if mtype == MsgType.ACCEPT:
-            self.server_pub_key = Criptografia.pubkey_from_str(msg)
-        elif mtype == MsgType.DENIED:
-            print("[Error]", msg)
-            return False
-        else:
-            print("Unexpected return type when trying to login:", mtype)
-            return False
 
         # Validate user credentials
         sucess, retorno = self.checkUserCredentials(MsgType.CKLG, username, passwd)
