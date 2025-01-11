@@ -1,15 +1,16 @@
 import os
 import socket
-import warnings
 import threading
 import struct
 import json
 from typing import *
 
+import rsa
+
 from crypto import Criptografia, MsgType
+from crypto import PKG_SIZE, PKG_CHUNK_SIZE
 
 class Servidor():
-    
     """
     Classe do servidor.
     Baseado em: https://docs.python.org/3/howto/sockets.html
@@ -22,7 +23,8 @@ class Servidor():
 
         self.log("Setting up server...")
         self.socket = self._init_socket(address)
-        self.log("Server is up. Waiting for connections...")
+        self.rsa_pubkey, self.rsa_privkey = Criptografia.generate_rsa_keys()
+        self.log(f"Server is up on address {address[0]}:{address[1]}. Waiting for connections...")
 
     def _init_socket(self, address) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,18 +32,39 @@ class Servidor():
         s.listen(self.max_connections);
         return s
 
-    def log(self, msg, logtype: Literal['server', 'info', 'warn'] = 'server', **args):
-        prefix = "[SERVER]"
-
+    def log(self, msg, logtype: Literal['server', 'info', 'warn'] | str = 'SERVER', **args):
         if logtype == 'warn':
-            prefix = "[SERVER WARNING]"
+            prefix = "[WARNING]"
         elif logtype == 'info':
             prefix = "[INFO]"
+        else:
+            prefix = f"[{logtype}]"
 
         print(prefix, msg, **args)
 
+    def logPackage(self, msg_type: MsgType | int, src: str , dst: str, msg: str | bytes):
+        msg_type = msg_type if type(msg_type) == MsgType else MsgType(msg_type)
+        match (msg_type):
+            case MsgType.FWDMSG:
+                self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}", logtype=msg_type.name)
+            case MsgType.FWDFL:
+                self.log(f"{src} -> {dst} file of {msg} bytes.", logtype=msg_type.name)
+            case MsgType.DISCNT:
+                self.log(f"User {src} disconnected.", logtype=msg_type.name)
+            case MsgType.CONNCT:
+                self.log(f"{src} wants to connect.", logtype=msg_type.name)
+                self.log(f"ADDRESS={dst} PUBKEY={msg}")
+            case MsgType.RGUSR:
+                self.log(f"Solicitation to register new user: `{dst}`.", logtype=msg_type.name)
+                self.log(f"USERNAME={dst} PASSWD={msg}")
+            case MsgType.CKLG:
+                self.log(f"Solicitation to validate credentials from {src}.", logtype=msg_type.name)
+                self.log(f"USERNAME={dst} PASSWD={msg}")
+            case _:
+                self.log(f"[{msg_type.name}] {src} -> {dst}: {msg}")
+
     def forwardMessage(self, src, dst, msg):
-        if dst not in self.online_users:
+        if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot forward message. User `{dst}` is not online.")
             return
 
@@ -49,42 +72,56 @@ class Servidor():
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
         self.sendPackageUsr(MsgType.FWDMSG, src, dst, msg)
 
-    def sendPackage(self, socket: socket.socket, msg: bytes):
-        # Enviar msg
-        # Baseado em: https://docs.python.org/3/howto/sockets.html
+    def sendPackage(self, socket: socket.socket, msg_type: MsgType, src: str, dst: str, msg: str, pubkey: rsa.PublicKey | None = None):
+        pkg = Criptografia.packMessage(msg_type, src, dst, msg, pubkey if pubkey else None)
+
         total_sent = 0
-        while total_sent < len(msg):
-            sent = socket.send(msg[total_sent:])
-            if sent == 0:
+        while total_sent < len(pkg):
+            sent = socket.send(pkg[total_sent:])
+            if not sent:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
 
-    def sendPackageUsr(self, msg_type: MsgType, src: str , dst: str, msg: str):
+        self.log(f"[{msg_type.name}] {src} -> {dst} ({len(msg)} bytes): {msg}", logtype="PACKAGE SENT")
+
+    def sendPackageUsr(self, msg_type: MsgType, src: str, dst:str, msg:str) -> None:
         if dst not in self.getOnlineUsers():
             self.sendPackageUsr(MsgType.SERVER, 'server', src, f"Cannot send package. User `{dst}` is not online.")
             return
 
-        enc_msg = Criptografia.encode_msg(msg_type, src, dst, msg)
-
-        client_socket = self.getUserSocket(dst)
-        if not client_socket:
-            self.log(f"Socket for user `{dst}` is closed. Unable to forward message.", logtype='warn')
-            return
-
-        self.sendPackage(client_socket, enc_msg)
-        self.log(f"{src} -> {dst} ({len(msg)} bytes): {msg}")
+        # Do not encrypt messages that are being forwarded.
+        # They are encrypted before being sent by the client.
+        if msg_type in (MsgType.FWDMSG, MsgType.FWDFL):
+            self.sendPackage(self.getUserSocket(dst), msg_type, src, dst, msg)
+        else:
+            self.sendPackage(self.getUserSocket(dst), msg_type, src, dst, msg, pubkey=self.getUserPubKey(dst))
 
     def sendToAll(self, msg_type: MsgType, src: str, msg: str):
         for usr in self.online_users.keys():
             self.sendPackageUsr(msg_type, src, usr, msg)
 
     def getUserSocket(self, usr) -> socket.socket:
-        return self.online_users[usr][0]
+        try:
+            return self.online_users[usr][0]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find public key.")
 
     def getUserAddr(self, usr) -> Tuple[str, int]:
-        return self.online_users[usr][1]
-    
-    def registerUser(self, socket: socket.socket, username: str, passwd: str):
+        try:
+            return self.online_users[usr][1]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find address.")
+
+    def getUserPubKey(self, usr) -> rsa.PublicKey:
+        try:
+            return self.online_users[usr][2]
+        except KeyError:
+            raise KeyError(f"User `{usr}` is not online. Unable to find public key.")
+
+    def getServerPubKey(self) -> rsa.PublicKey:
+        return self.rsa_pubkey
+
+    def registerUser(self, socket: socket.socket, username: str, passwd: str, pubkey: rsa.PublicKey):
         """
         Registra um usuário no no arquivo de registros
         """
@@ -94,7 +131,7 @@ class Servidor():
 
         for usuario in data:
             if usuario['username'] == username:
-                self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, f'Nome de usuário {username} já existe.'))
+                self.sendPackage(socket, MsgType.DENIED, 'server', username, f'Nome de usuário {username} já existe.', pubkey=pubkey)
                 f.close()
                 self.log(f'Cadastro falhou! Usuário {username} já existe.', logtype='info')
                 return False
@@ -104,7 +141,8 @@ class Servidor():
         with open(self.getUserRegFile(), 'w') as f:
             json.dump(data, f)
 
-        self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, f'Usuário {username} registrado com sucesso.'))
+        self.sendPackage(socket, MsgType.ACCEPT, 'server', username, f'Usuário {username} registrado com sucesso.', pubkey=pubkey)
+
         f.close()
         self.log(f'Usuario {username} cadastrado.')
         return True
@@ -117,29 +155,38 @@ class Servidor():
             data = json.load(f)
         for usuario in data:
             if usuario['username'] == username and usuario['password'] == passwd:
-                self.sendPackage(socket, Criptografia.encode_msg(MsgType.ACCEPT, 'server', username, 'Credenciais verificadas.'))
+                self.sendPackage(socket, MsgType.ACCEPT, 'server', username, 'Credenciais verificadas.')
                 f.close()
                 return True
         f.close()
-        self.sendPackage(socket, Criptografia.encode_msg(MsgType.DENIED, 'server', username, 'Credenciais inválidas.'))
+        self.sendPackage(socket, MsgType.DENIED, 'server', username, 'Credenciais inválidas.')
         return False
 
-    def addUser(self, usr, socket, addr) -> bool:
-        success, msg = False, None
-        if usr not in self.online_users:
-            self.log(f"User just connected: {usr}@{addr[0]}:{addr[1]}")
-            self.online_users[usr] = (socket,addr)
-            msg = Criptografia.encode_msg(MsgType.ACCEPT, 'server', usr, f"Bem vindo, {usr}!")
-            success = True
-        else:
-            msg = Criptografia.encode_msg(MsgType.DENIED, 'server', usr, 'Nome de usuário já existe no servidor')
-        
-        self.sendPackage(socket, msg)
-        if success: # notify clients
-            self.sendToAll(MsgType.SERVER, 'server', f"{usr} se conectou!")
-            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
-            
+    def authenticateClient(self, socket, username, passwd, addr, pubkey) -> bool:
+        success = False
+        if self.checkUserCredentials(socket = socket, username = username, passwd = passwd):
+            self.online_users[username] = (socket, addr, pubkey)
+
+            # notify clients
+            self.sendToAll(MsgType.SERVER, 'server', f"{username} se conectou!")
+            self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
+
         return success
+
+    def connectClient(self, socket) -> tuple[str, rsa.PublicKey]:
+        msg_type, usr, addr, pubkey = self.receivePackage(socket)
+        if (msg_type == MsgType.CONNCT):
+            pubkey = Criptografia.pubkey_from_str(pubkey)
+
+            self.sendPackage(
+                socket,
+                msg_type=MsgType.ACCEPT,
+                src='server',
+                dst=usr,
+                msg=Criptografia.str_from_pubkey(self.getServerPubKey()),
+                pubkey=pubkey
+            )
+        return usr, pubkey
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
@@ -147,13 +194,16 @@ class Servidor():
                 self.online_users.pop(k)
                 break
 
+        print(self.getOnlineUsers(pubkeys=True))
         # notify clients
-        self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers()))
+        self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
 
-    def getOnlineUsers(self):
+    def getOnlineUsers(self, pubkeys=False):
+        if pubkeys:
+            return [(k,v[2]) for k,v in self.online_users.items()]
         return list(self.online_users.keys())
     
-    def sendFileUsr(self, msg_type: MsgType, src: str, dst: str, fnm: str, file_data: bytes):
+    def sendFileUsr(self, src: str, dst: str, fnm: str, file_data: bytes):
         if dst not in self.online_users:
             self.sendPackageUsr(MsgType.ERRMSG, 'server', src, f"Cannot forward message; user `{dst}` is not online.")
             return
@@ -164,24 +214,22 @@ class Servidor():
             return
 
         # Envia informações da transação
-        enc_msg = Criptografia.encode_msg(msg_type, src, dst, fnm.replace('\x00', ''))
-        client_socket.sendall(enc_msg) 
+        self.sendPackageUsr(MsgType.FWDFL, src, dst, fnm.replace('\x00', ''))
 
         # Envia tamanho do arquivo
         fsz = len(file_data)
         client_socket.send(struct.pack('!I', fsz))
 
         # Envia dados do arquivo
-        buffer = 1024
         total_sent = 0
         while total_sent < fsz:
-            end = min(total_sent + buffer, fsz)  # Define o tamanho do próximo bloco
+            end = min(total_sent + PKG_SIZE, fsz)  # Define o tamanho do próximo bloco
             data = file_data[total_sent:end]
             sent = client_socket.send(data)
             if sent == 0:
                 raise RuntimeError("Socket connection broken.")
             total_sent += sent
-        self.log(f'{src} -> {dst}: File of size {total_sent} bytes')
+        self.logPackage(MsgType.FWDFL, src, dst, total_sent)
     
     def getFileSize(self, sock) -> int:
         received = 0
@@ -205,48 +253,32 @@ class Servidor():
         chunks = b''
         total_received = 0
         while total_received < fsz:
-            data = src_socket.recv(1024)
+            data = src_socket.recv(PKG_SIZE)
             if not data:
                 break
             chunks += data
             total_received += len(data)
         
         self.sendPackageUsr(MsgType.ACCEPT, 'server', src, 'OK')
-        self.sendFileUsr(MsgType.FWDFL, src, dst, fnm, chunks)
+        self.sendFileUsr(src, dst, fnm, chunks)
 
-    def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | socket.socket, msg: str | Tuple[str, int]):
-        match (mtype):
-            case MsgType.CONNCT.value:
-                assert(type(src) == str and\
-                       type(dst) == socket.socket and\
-                       type(msg) == tuple)
-                self.addUser(src, socket=dst, addr=msg)
+    def receivePackage(self, socket: socket.socket):
+        pkg = b""
+        total_received = 0
+        while total_received < PKG_SIZE:
+            data = socket.recv(PKG_CHUNK_SIZE)
+            if not data:
+                break
+            pkg += data
+            total_received += len(data)
 
-            case MsgType.DISCNT.value:
-                self.removeUser(src)
+        #print(f"SERVER RECEIVED {len(pkg)} BYTES:", pkg)
+        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg)
+        if msg_type in (MsgType.RGUSR, MsgType.CKLG):
+            msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.rsa_privkey)
 
-            case MsgType.FWDMSG.value:
-                assert(type(src) == str and type(dst) == str)
-                self.forwardMessage(src, dst, msg)
-
-            case MsgType.SERVER.value:
-                assert(type(src) == str and type(dst) == str and type(msg) == str)
-                self.interpretServerRequest(src=src, cmd=dst, options=msg)
-
-            case  MsgType.FWDFL.value:
-                assert(type(src) == str and type(dst) == str and type(msg) == str)
-                self.recieveFilePackage(src, dst, fnm = msg)
-
-            case MsgType.CKLG.value:
-                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
-                self.checkUserCredentials(socket = src, username = dst, passwd = msg)   
-
-            case MsgType.RGUSR.value:
-                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
-                self.registerUser(src, username = dst, passwd = msg)  
-
-            case _:
-                self.log(f"Unknown message type received from user `{src}`: `{mtype}`.", logtype='warn')
+        self.logPackage(msg_type,src,dst,msg)
+        return msg_type, src, dst, msg
 
     def interpretCommand(self, cmd, args):
         match (cmd):
@@ -265,29 +297,56 @@ class Servidor():
                 self.sendPackageUsr(MsgType.DISCNT, 'server', args[0], "kicked from server.")
                 self.log(f"Kicked {args[0]}.")
 
+            case "list":
+                """
+                Lists online users
+                """
+                self.log("Online users:", str(self.getOnlineUsers()))
+
             case _:
                 self.log(f"Comando não reconhecido: `{cmd}`", logtype='info')
 
+    def connectionLoop(
+            self,
+            client_socket: socket.socket,
+            client_addr: tuple[str, int],
+            user: str,
+            pubkey: rsa.PublicKey,
+    ) -> None:
+        running = True
+        while running:
+            mtype, src, dst, msg = self.receivePackage(client_socket)
+            match (mtype):
+                case MsgType.DISCNT:
+                    running = False
+
+                case MsgType.FWDMSG:
+                    assert(type(src) == str and type(dst) == str)
+                    self.forwardMessage(src, dst, msg)
+
+                case MsgType.FWDFL:
+                    assert(type(src) == str and type(dst) == str and type(msg) == str)
+                    self.recieveFilePackage(src, dst, fnm = msg)
+
+                case MsgType.RGUSR:
+                    self.registerUser(client_socket, username = dst, passwd = msg, pubkey=pubkey)
+
+                case MsgType.CKLG:
+                    self.authenticateClient(client_socket, dst, msg, client_addr, pubkey)
+
+                case _:
+                    self.log(f"Unknown message type received from user `{src}`: `{mtype}`. Disconnecting.", logtype='warn')
+                    running = False
+
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
-        print(f" >>> {client_addr} connected.")
+        assert self.socket is not None, "Server is not ready to be receiving connections."
+
+        self.log(f" >>> {client_addr} connected.")
+
+        user, pubkey = self.connectClient(client_socket)
 
         try:
-            while True:
-                data = client_socket.recv(1024)
-                if not data: return
-
-                mtype, src, dst, msg = Criptografia.decode_msg(data)
-                if mtype == MsgType.CONNCT.value:
-                    self.interpretMessage(mtype, src, client_socket, client_addr) # FIXME
-                elif mtype == MsgType.DISCNT.value:
-                    break
-                elif mtype == MsgType.FWDFL.value:
-                    #Receber o nome do arquivo e enviar para o dst
-                    self.interpretMessage(mtype, src, dst, msg)
-                elif mtype == MsgType.CKLG.value or mtype == MsgType.RGUSR.value:
-                    self.interpretMessage(mtype, client_socket, dst, msg)
-                else:
-                    self.interpretMessage(mtype, src, dst, msg)
+            self.connectionLoop(client_socket, client_addr, user, pubkey)
 
         except Exception as e:
             self.log(f"Error handling client {client_addr}: {e}", logtype="warn")
@@ -296,7 +355,6 @@ class Servidor():
             client_socket.close()
             self.removeUser(client_addr)
             self.log(f" <<< {client_addr} disconnected.")
-            self.log(f"Online users: {self.getOnlineUsers()}")
 
     def getUserRegFile(self) -> str:
         # Create user reg file if it doesn't exist
@@ -309,7 +367,6 @@ class Servidor():
     def start(self):
         while True:
             (c_socket, c_address) = self.socket.accept()
-            #self.onClientConnect(c_socket, c_address)
             client_thread = threading.Thread(
                 target=self.onClientConnect,
                 args=(c_socket, c_address),
