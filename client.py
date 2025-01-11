@@ -110,6 +110,11 @@ class Cliente:
         print("Desconectado.")
         quit(0)
 
+    def createGroup(self, name:str, users: list[str]):
+        print(f"New group `>{name}`:", users)
+        self.online_users['>'+name] = users
+        self.notifyGUI()
+
     def sendFile(self, dst, filename) -> None:
         self.sendFilePackage(dst, filename)
         self.registerMessage(self.dst, f"[!] Você enviou um arquivo para {dst}: {filename}")
@@ -228,7 +233,7 @@ class Cliente:
             return False
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
-        self.username = username.replace(' ', '_').replace('*','')
+        self.username = username.replace(' ', '_').replace('*', '').replace('>', '')
         self.sendPackage(MsgType.CKLG, username, passwd, encrypt=True)
         mtype, _, _, msg = self.receivePackage(decrypt=False)
         if mtype == MsgType.ACCEPT:
@@ -321,7 +326,12 @@ class Cliente:
                 filename = msg[msg.find(' ')+1:]
                 self.sendFile(self.dst, filename)
         else:
-            self.sendMessage(self.dst, msg)
+            assert self.dst is not None
+            if (self.dst.startswith('>')): # It's a group
+                for usr in self.online_users[self.dst]:
+                    self.sendMessage(usr, msg)
+            else:
+                self.sendMessage(self.dst, msg)
 
     def interpretPackage(self, pkg) -> bool:
         mtype, src, dst, msg = pkg
