@@ -15,10 +15,10 @@ from rsa.pkcs1 import DecryptionError
 PKG_SIZE = 2048
 USERNAME_SIZE = 32
 HEADER_SIZE = 1 + 1 + 2*USERNAME_SIZE + 1 + 2
-MSG_SIZE = PKG_SIZE - HEADER_SIZE - 1
-PKG_STRUCT = f"B B {USERNAME_SIZE}s B {USERNAME_SIZE}s H {MSG_SIZE}s"
+MSG_SIZE = PKG_SIZE - HEADER_SIZE
+PKG_STRUCT = f">B B {USERNAME_SIZE}s B {USERNAME_SIZE}s H {MSG_SIZE}s"
 RSA_KEY_SIZE = 1024
-PKG_CHUNK_SIZE = (RSA_KEY_SIZE +7)//8 - 11
+PKG_CHUNK_SIZE = (RSA_KEY_SIZE+7)//8 - 11
 ENCODING = 'utf-8'
 
 class MsgType(Enum):
@@ -36,7 +36,7 @@ class MsgType(Enum):
 
 class Criptografia:
     @staticmethod
-    def unpackMessage(data: bytes, privkey: rsa.PrivateKey | None = None, encoding=ENCODING) -> tuple[MsgType, str, str, str]:
+    def unpackMessage(data: bytes, privkey: rsa.PrivateKey | None = None, encoding=ENCODING) -> tuple[MsgType, str, str, str | bytes]:
         """
         Decodifica uma mensagem em bytes:
          - [1] Tipo da mensagem (Ver MsgType)
@@ -47,48 +47,44 @@ class Criptografia:
          - [68] Tamanho da mensagem
          - [69-2048] Mensagem
         """
-        while len(data) < PKG_SIZE:
-            data += b'\00'
+        while len(data) < PKG_SIZE-1:
+            data += b'\0'
 
         decoded_msg = struct.unpack(PKG_STRUCT, data)
 
-        mtype = decoded_msg[0]
-        src = decoded_msg[2][:decoded_msg[1]].decode(encoding)
-        dst = decoded_msg[4][:decoded_msg[3]].decode(encoding)
-        msg = decoded_msg[6][:decoded_msg[5]]
+        mtype = MsgType(decoded_msg[0])
+        src = decoded_msg[2].decode(encoding)[:int(decoded_msg[1])]
+        dst = decoded_msg[4].decode(encoding)[:int(decoded_msg[3])]
+        msg = decoded_msg[6][:int(decoded_msg[5])]
 
         if privkey and len(msg) > 0:
-            try:
-                msg = Criptografia.decrypt_chunked(msg, privkey)
-            except DecryptionError:
-                pass # Assumir que a imagem não está criptografada
+            msg = Criptografia.decrypt_chunked(msg, privkey)
 
         try:
             return mtype, src, dst, msg.decode(ENCODING)
         except:
-            return mtype, src, dst, str(msg)
+            return mtype, src, dst, (msg if type(msg) == bytes else str(msg))
 
     @staticmethod
     def packMessage(msg_type: MsgType, src: str | bytes, dst: str | bytes, msg: str | bytes, pubkey: rsa.PublicKey | None = None, encoding=ENCODING):
-        if len(msg) > MSG_SIZE:
+        if len(msg) > PKG_SIZE:
             # TODO: Tamanho dinâmico de mensagens
             warnings.warn("Mensagem muito grande para ser enviada.")
             return b''
 
-        b_src = src if (type(src) == bytes) else bytes(src, encoding)
-        b_dst = dst if (type(dst) == bytes) else bytes(dst, encoding)
-        b_msg = msg if (type(msg) == bytes) else bytes(msg, encoding)
+        b_src = src if (type(src) == bytes) else src.encode(encoding)
+        b_dst = dst if (type(dst) == bytes) else dst.encode(encoding)
+        b_msg = msg if (type(msg) == bytes) else msg.encode(encoding)
 
-        if pubkey and Criptografia.can_encrypt_with_rsa(b_msg, pubkey):
+        if pubkey:
             b_msg = Criptografia.encrypt_chunked(b_msg, pubkey)
 
-        assert(len(b_src) <= USERNAME_SIZE and len(b_dst) <= USERNAME_SIZE and len(b_msg) <= MSG_SIZE)
         return struct.pack(
             PKG_STRUCT,
             msg_type.value,
-            len(src), b_src,
-            len(dst), b_dst,
-            len(msg), b_msg
+            len(b_src), b_src,
+            len(b_dst), b_dst,
+            len(b_msg), b_msg
         )
 
     @staticmethod
@@ -107,7 +103,7 @@ class Criptografia:
 
     @staticmethod
     def generate_rsa_keys() -> Tuple[rsa.PublicKey, rsa.PrivateKey]:
-        pub, priv = rsa.newkeys(RSA_KEY_SIZE)
+        pub, priv = rsa.newkeys(RSA_KEY_SIZE, accurate=True, poolsize=2)
         return (pub, priv)
 
     @staticmethod
@@ -118,8 +114,8 @@ class Criptografia:
         n=1234 and e=5678.
         """
         assert s is not None
-        names_and_keys = [x.split(',PublicKey') for x in s.replace(' ', '').replace('\'','')[2:-2].split("),(")]
-        n, e = map(int, s[1:-1].strip().split(','))
+        s = s.replace('PublicKey', '').strip().strip('()')
+        n, e = map(int, s.split(','))
         return rsa.PublicKey(n=n, e=e)
 
     @staticmethod
@@ -128,14 +124,26 @@ class Criptografia:
         Takes in public key and returns a string
         of shape (n,e)
         """
+        assert p is not None
         return str(p).replace("PublicKey", '')
 
-    @staticmethod
-    def can_encrypt_with_rsa(message: bytes, pubkey: rsa.PublicKey) -> bool:
-        key_size = rsa.common.byte_size(pubkey.n)
-        max_message_size = key_size - 11  # 11 bytes for PKCS#1 padding
-        return len(message) <= max_message_size
-
-
 if __name__ == '__main__':
-    pass
+    from string import printable
+    import random
+    pub, priv = rsa.newkeys(1024)
+
+    for i in range(2048):
+        msg = ''.join([random.choice(printable) for _ in range(i)]).encode('utf-8')
+        print(f"Test {i}/2048: {msg}")
+        enc_msg = Criptografia.encrypt_chunked(msg, pub)
+        dec_msg = Criptografia.decrypt_chunked(enc_msg, priv)
+        if msg == dec_msg:
+            continue
+        else:
+            print("Encryption failed")
+            print("Message:", msg)
+            print("Encrypted:", enc_msg)
+            print("Decrypted:", dec_msg)
+            quit(1)
+
+    print("Encryption passed all tests.")

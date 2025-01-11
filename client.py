@@ -135,7 +135,7 @@ class Cliente:
 
     def sendMessage(self, dst, msg: str) -> None:
         self.sendPackage(MsgType.FWDMSG, dst, msg, encrypt=True)
-        self.registerMessage(self.dst, f"Você: {msg}")
+        self.registerMessage(self.dst, f"Você: {msg}") #TODO: Register sent message only when server acknoledges it
 
     def sendPackage(self, msg_type: MsgType, dst: str, msg: str, encrypt=False):
         """
@@ -154,14 +154,15 @@ class Cliente:
         enc_msg = Criptografia.packMessage(msg_type, self.username, dst, msg, dst_pubkey)
         try:
             self.socket.sendall(enc_msg)
-            #print(f"CLIENT SENT {len(enc_msg)} BYTES: {MsgType.FWDMSG} {self.username} {dst} {msg}")
+            #print(f"CLIENT SENT {len(enc_msg)} BYTES: {msg_type} {self.username} {dst} {msg}")
+            #print(enc_msg)
         except socket.error as e:
             print(f"[!] Conexão perdida. ({e})")
             print(f"[!] Tentando reconectar em {RECONNECT_TIMEOUT}s...")
             sleep(RECONNECT_TIMEOUT)
             self.reconnect()
 
-    def receivePackage(self, decrypt: bool = True) -> tuple[MsgType, str,str,str]:
+    def receivePackage(self, decrypt: bool = True) -> tuple[MsgType, str, str, str]:
         """
         Baseado em: https://docs.python.org/3/howto/sockets.html
         """
@@ -177,26 +178,24 @@ class Cliente:
                 data = self.socket.recv(min(PKG_CHUNK_SIZE, PKG_SIZE-total_received))
                 if not data:
                     break
-
                 pkg += data
                 total_received += len(data)
-
             except socket.error as e:
                 print(f"Socket error while receiving: {e}")
                 return (MsgType.ERRMSG, '', '', f'Socket error: {e}')
 
-        # Pad the package if we didn't receive enough data
         if total_received < PKG_SIZE:
             pkg += b'\0' * (PKG_SIZE - total_received)
 
         #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
-        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt else None)
+        msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt and (self.priv_rsa_key is not None) else None)
+        print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
         return msg_type, src, dst, msg
-    
+            
     def checkUserCredentials(self, msg_type, username, passwd):
         self.sendPackage(msg_type, username, passwd, encrypt=False)
         mtype, _, _, msg = self.receivePackage(decrypt=False)
-        if mtype == MsgType.ACCEPT.value:
+        if mtype == MsgType.ACCEPT:
             return True, msg
         else:
             return False, msg
@@ -204,7 +203,7 @@ class Cliente:
     def registerUser(self, username, passwd) -> str:
         self.sendPackage(MsgType.RGUSR, username, passwd)
         mtype, _, _, msg = self.receivePackage()
-        if mtype == MsgType.ACCEPT.value:
+        if mtype == MsgType.ACCEPT:
             return ''
         else:
             return str(msg)
@@ -221,26 +220,27 @@ class Cliente:
 
         self.username = username.replace(' ', '_').replace('*','')
 
+        addr, port = self.socket.getsockname()
+        pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
+        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey, encrypt=False)
+
+        mtype, _, _, msg = self.receivePackage(decrypt=True)
+        if mtype == MsgType.ACCEPT:
+            self.server_pub_key = Criptografia.pubkey_from_str(msg)
+        elif mtype == MsgType.DENIED:
+            print("[Error]", msg)
+            return False
+        else:
+            print("Unexpected return type when trying to login:", mtype)
+            return False
+
+        # Validate user credentials
         sucess, retorno = self.checkUserCredentials(MsgType.CKLG, username, passwd)
         if not sucess:
             print("[Error]", retorno)
             return False
 
-        addr, port = self.socket.getsockname()
-
-        pubkey = Criptografia.str_from_pubkey(self.getPublicKey())
-        self.sendPackage(MsgType.CONNCT, f"{addr}:{port}", pubkey, encrypt=False)
-
-        mtype, _, _, msg = self.receivePackage()
-
-        if mtype == MsgType.ACCEPT.value:
-            self.server_pub_key = Criptografia.pubkey_from_str(msg)
-            return True
-        elif mtype == MsgType.DENIED.value:
-            print("[Error]", msg)
-        else:
-            print("Unexpected return type when trying to login:", mtype)
-        return False
+        return True
 
     def getPublicKey(self) -> rsa.PublicKey:
         return self.pub_rsa_key
@@ -328,21 +328,21 @@ class Cliente:
         mtype, src, dst, msg = pkg
         interrupt = False
         match(mtype):
-            case MsgType.FWDMSG.value:
+            case MsgType.FWDMSG:
                 self.registerMessage(src, f"{src}: {msg}")
-            case MsgType.FWDFL.value:
+            case MsgType.FWDFL:
                 self.downloadReceivedFile(src, filename = msg)
-            case MsgType.SERVER.value:
+            case MsgType.SERVER:
                 self.registerMessage(self.dst, f"[SERVER] {msg}")
-            case MsgType.ERRMSG.value:
+            case MsgType.ERRMSG:
                 self.registerMessage(self.dst, f"[ERROR] The server reported an error: {msg}")
                 interrupt = True
-            case MsgType.DISCNT.value:
+            case MsgType.DISCNT:
                 self.registerMessage(self.dst, f"[SERVER] Disconnected from server: {msg}")
                 interrupt = True
-            case MsgType.USRONL.value:
+            case MsgType.USRONL:
                 self.online_users = Cliente.parse_online_users(msg)
-                print(self.online_users)
+                #print(self.online_users)
                 self.notifyGUI()
             case _:
                 pass
@@ -351,7 +351,7 @@ class Cliente:
     def start_receive_loop(self):
         def receive_messages():
             while self.isConnected() and self.recv_msgs:
-                if self.interpretPackage( self.receivePackage() ):
+                if self.interpretPackage( self.receivePackage(decrypt=True) ):
                     break
             self.disconnect()
 
