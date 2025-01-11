@@ -123,22 +123,26 @@ class App(ttk.Frame):
 
         self.root.title(self.client.getUsername())
 
-        self.chat_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state='disabled', height=20, width=80)
-        self.chat_area.grid(row=0, column=1, columnspan=3, padx=10, pady=10)
+        self.chat_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state='disabled')
+        self.chat_area.grid(row=0, column=1, rowspan=2, columnspan=3, padx=10, pady=10)
 
         self.users_list = tk.Listbox(self.root, height=20, width=20)
         self.users_list.grid(row=0, column=0, rowspan=2, padx=10, pady=10, sticky='ns')
         self.users_list.bind("<<ListboxSelect>>", self.selectDestinationUser)
 
+        self.create_group_button = tk.Button(self.root, text="Criar grupo", command=self.getUsersForGroup)
+        self.create_group_button.grid(row=2, column=0, padx=5, pady=10)
+
         self.message_box = tk.Entry(self.root, width=70)
-        self.message_box.grid(row=1, column=1, padx=10, pady=10)
+        self.message_box.grid(row=2, column=1, padx=10, pady=10)
         self.message_box.bind('<Return>', lambda _: self.sendMessage())
 
         self.send_button = tk.Button(self.root, text="Enviar", command=self.sendMessage)
-        self.send_button.grid(row=1, column=2, padx=5, pady=10)
+        self.send_button.grid(row=2, column=2, padx=5, pady=10)
+        self.message_box.bind('<Return>', lambda _: self.sendMessage())
 
         self.send_file_button = tk.Button(self.root, text="+", command=self.sendFile)
-        self.send_file_button.grid(row=1, column=3, padx=5, pady=10)
+        self.send_file_button.grid(row=2, column=3, padx=5, pady=10)
 
     def selectDestinationUser(self, event):
         selected = self.users_list.curselection()
@@ -152,6 +156,34 @@ class App(ttk.Frame):
         self.users_list.delete(0, tk.END)  # Clear the list
         for user in users:
             self.users_list.insert(tk.END, user + (' *' if user in self.client.getUnread() else ''))
+
+    def getUsersForGroup(self):
+        select_group_root = tk.Tk()
+        select_group_root.title("Criar novo grupo")
+
+        new_group = []
+        select_group_window = ttk.Frame(select_group_root, padding=100, height=250, width=300)
+
+        users_list = tk.Listbox(select_group_root, activestyle='dotbox', selectmode='multiple')
+        users_list.grid(row=1, column=0, padx=10, pady=10, sticky='ns')
+        users_list.bind("<<ListboxSelect>>", lambda x: new_group.append(x))
+
+        users_list.delete(0, tk.END)  # Clear the list
+        for user in self.client.getCachedOnlineUsers():
+            if user == self.client.getUsername():
+                continue
+            users_list.insert(tk.END, user + (' *' if user in self.client.getUnread() else ''))
+
+        create_group_button = tk.Button(select_group_root, text="Criar grupo", command=lambda: self.createGroup([users_list.get(i) for i in users_list.curselection()]))
+        create_group_button.grid(row=0, column=0, padx=5, pady=10)
+        create_group_button.bind('<Return>', lambda _: self.sendMessage())
+
+
+    def createGroup(self, users):
+        users.append(self.client.getUsername())
+        print("[TODO] Creating group with users:", *users)
+        pass
+        #self.client.createGroup(users)
 
     def sendFile(self):
         fname = filedialog.askopenfilename(
