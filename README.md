@@ -21,7 +21,7 @@ Os alunos devem trabalhar em equipes para implementar um sistema distribuído qu
   - [X] Suporte para comunicação simultânea de múltiplos clientes (concorrência com threads ou processos).
   - [X] Mecanismos básicos de autenticação (login/senha).
   - [X] Tratamento de erros e reconexão em caso de falhas.
-  - [ ] Criptografia básica para troca de mensagens (ex.: AES ou RSA).
+  - [X] Criptografia básica para troca de mensagens (ex.: AES ou RSA).
   - [ ] Controle de tráfego (ex.: limitar o número de conexões simultâneas por cliente).
 - **Funcionalidades Extras (Opcional)**:
   - [ ] Chat em grupo (multicast).
