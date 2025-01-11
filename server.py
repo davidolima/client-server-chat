@@ -10,7 +10,7 @@ import rsa
 from crypto import Criptografia, MsgType
 from crypto import PKG_SIZE, PKG_CHUNK_SIZE
 
-MAX_CLIENTS_PER_HOST = 2
+MAX_CLIENTS_PER_HOST = 3
 
 class Servidor():
     """

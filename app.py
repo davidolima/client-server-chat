@@ -164,6 +164,9 @@ class App(ttk.Frame):
         new_group = []
         select_group_window = ttk.Frame(select_group_root, padding=100, height=250, width=300)
 
+        group_name_box = tk.Entry(select_group_root)
+        group_name_box.grid(row=0, column=0, padx=10, pady=10)
+
         users_list = tk.Listbox(select_group_root, activestyle='dotbox', selectmode='multiple')
         users_list.grid(row=1, column=0, padx=10, pady=10, sticky='ns')
         users_list.bind("<<ListboxSelect>>", lambda x: new_group.append(x))
@@ -174,16 +177,17 @@ class App(ttk.Frame):
                 continue
             users_list.insert(tk.END, user + (' *' if user in self.client.getUnread() else ''))
 
-        create_group_button = tk.Button(select_group_root, text="Criar grupo", command=lambda: self.createGroup([users_list.get(i) for i in users_list.curselection()]))
-        create_group_button.grid(row=0, column=0, padx=5, pady=10)
+        def createGroupButton():
+            self.createGroup(group_name_box.get(), [users_list.get(i) for i in users_list.curselection()])
+            select_group_root.destroy()
+
+        create_group_button = tk.Button(select_group_root, text="Criar grupo", command=createGroupButton)
+        create_group_button.grid(row=0, column=1, padx=5, pady=10)
         create_group_button.bind('<Return>', lambda _: self.sendMessage())
 
-
-    def createGroup(self, users):
+    def createGroup(self, name: str, users: list[str]):
         users.append(self.client.getUsername())
-        print("[TODO] Creating group with users:", *users)
-        pass
-        #self.client.createGroup(users)
+        self.client.createGroup(name, users)
 
     def sendFile(self):
         fname = filedialog.askopenfilename(
