@@ -63,7 +63,7 @@ class Cliente:
         try:
             self.socket.connect( (self.host, self.port) )
         except ConnectionRefusedError:
-            print("ERROR: Server is offline.")
+            print(F"[ERROR] Error connecting to {self.host}:{self.port}: Server is offline.")
             quit(0)
 
         # Trade RSA keys with server
@@ -75,6 +75,7 @@ class Cliente:
             self.server_pub_key = Criptografia.pubkey_from_str(msg)
         elif mtype == MsgType.DENIED:
             print("[Error]", msg)
+            quit(0)
         else:
             print("Unexpected return type when trying to login:", mtype)
 
@@ -266,10 +267,13 @@ class Cliente:
             self.msg_history[usr] = []
         return self.msg_history[usr]
 
-    def getDestination(self):
+    def getUsername(self) -> str:
+        return self.username
+
+    def getDestination(self) -> str | None:
         return self.dst
 
-    def setDestination(self, dst):
+    def setDestination(self, dst) -> None:
         self.dst = dst
         if self.dst in self.unread:
             self.unread.remove(self.dst)
@@ -397,7 +401,7 @@ class Cliente:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=socket.gethostname(), type=str)
+    parser.add_argument("--host", default='localhost', type=str)
     parser.add_argument("--port", default=8080, type=int)
     args = parser.parse_args()
 

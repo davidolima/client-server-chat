@@ -10,6 +10,8 @@ import rsa
 from crypto import Criptografia, MsgType
 from crypto import PKG_SIZE, PKG_CHUNK_SIZE
 
+MAX_CLIENTS_PER_HOST = 2
+
 class Servidor():
     """
     Classe do servidor.
@@ -31,6 +33,19 @@ class Servidor():
         s.bind(address)
         s.listen(self.max_connections);
         return s
+
+    def checkHostLimitPerClient(self, client_address: str) -> bool:
+        """
+        Returns True if there are less or MAX_CLIENTS_PER_HOST
+        connected to server. Otherwise, returns False.
+        """
+        online_addresses = [v[1][0] for k,v in self.online_users.items()]
+        client_host = client_address.strip().split(':')[0]
+
+        if client_host == socket.gethostname() or client_host == 'localhost':
+            client_host = '127.0.0.1'
+
+        return (online_addresses.count(client_host) < MAX_CLIENTS_PER_HOST)
 
     def log(self, msg, logtype: Literal['server', 'info', 'warn'] | str = 'SERVER', **args):
         if logtype == 'warn':
@@ -175,17 +190,30 @@ class Servidor():
 
     def connectClient(self, socket) -> tuple[str, rsa.PublicKey]:
         msg_type, usr, addr, pubkey = self.receivePackage(socket)
+
         if (msg_type == MsgType.CONNCT):
             pubkey = Criptografia.pubkey_from_str(pubkey)
 
-            self.sendPackage(
-                socket,
-                msg_type=MsgType.ACCEPT,
-                src='server',
-                dst=usr,
-                msg=Criptografia.str_from_pubkey(self.getServerPubKey()),
-                pubkey=pubkey
-            )
+            if not self.checkHostLimitPerClient(addr):
+                self.sendPackage(
+                    socket,
+                    msg_type=MsgType.DENIED,
+                    src='server',
+                    dst=usr,
+                    msg=f"Max number of connected clients exceeded for host `{addr.split(':')[0]}`.",
+                    pubkey=pubkey
+                )
+                self.log(f"Max number of connected clients exceeded for host `{addr.split(':')[0]}`.", logtype="DENIED")
+                return '', None
+            else:
+                self.sendPackage(
+                    socket,
+                    msg_type=MsgType.ACCEPT,
+                    src='server',
+                    dst=usr,
+                    msg=Criptografia.str_from_pubkey(self.getServerPubKey()),
+                    pubkey=pubkey
+                )
         return usr, pubkey
 
     def removeUser(self, usr_addr):
@@ -344,6 +372,8 @@ class Servidor():
         self.log(f" >>> {client_addr} connected.")
 
         user, pubkey = self.connectClient(client_socket)
+        if user is None or pubkey is None:
+            return
 
         try:
             self.connectionLoop(client_socket, client_addr, user, pubkey)
@@ -391,7 +421,7 @@ class Servidor():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=socket.gethostname(), type=str)
+    parser.add_argument("--host", default='localhost', type=str)
     parser.add_argument("--port", default=8080, type=int)
     args = parser.parse_args()
 

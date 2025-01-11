@@ -121,6 +121,8 @@ class App(ttk.Frame):
         Layout da tela de chat
         """
 
+        self.root.title(self.client.getUsername())
+
         self.chat_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state='disabled', height=20, width=80)
         self.chat_area.grid(row=0, column=1, columnspan=3, padx=10, pady=10)
 
@@ -196,10 +198,9 @@ class App(ttk.Frame):
         self.updateUsersList(self.client.getCachedOnlineUsers())
 
 if __name__ == "__main__":
-    from socket import gethostname
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=gethostname(), type=str)
+    parser.add_argument("--host", default='localhost', type=str)
     parser.add_argument("--port", default=8080, type=int)
     args = parser.parse_args()
 
