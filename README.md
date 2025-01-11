@@ -24,7 +24,7 @@ Os alunos devem trabalhar em equipes para implementar um sistema distribuído qu
   - [X] Criptografia básica para troca de mensagens (ex.: AES ou RSA).
   - [X] Controle de tráfego (ex.: limitar o número de conexões simultâneas por cliente).
 - **Funcionalidades Extras (Opcional)**:
-  - [ ] Chat em grupo (multicast).
+  - [X] Chat em grupo (multicast).
   - [ ] Suporte para comunicação em tempo real com áudio ou vídeo (bônus).
   - [X] Interface gráfica simples (ex.: Tkinter, PyQt ou similar).
 
