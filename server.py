@@ -174,7 +174,7 @@ class Servidor():
 
         return success
 
-    def connectClient(self, socket) -> tuple[str, str, rsa.PublicKey]:
+    def connectClient(self, socket) -> tuple[str, rsa.PublicKey]:
         msg_type, usr, addr, pubkey = self.receivePackage(socket)
         if (msg_type == MsgType.CONNCT):
             pubkey = Criptografia.pubkey_from_str(pubkey)
@@ -187,7 +187,7 @@ class Servidor():
                 msg=Criptografia.str_from_pubkey(self.getServerPubKey()),
                 pubkey=pubkey
             )
-        return usr, addr, pubkey
+        return usr, pubkey
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
@@ -275,32 +275,11 @@ class Servidor():
 
         #print(f"SERVER RECEIVED {len(pkg)} BYTES:", pkg)
         msg_type, src, dst, msg = Criptografia.unpackMessage(pkg)
+        if msg_type in (MsgType.RGUSR, MsgType.CKLG):
+            msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.rsa_privkey)
 
         self.logPackage(msg_type,src,dst,msg)
         return msg_type, src, dst, msg
-
-    def interpretMessage(self, mtype: MsgType, src: str | socket.socket, dst: str | socket.socket, msg: str | Tuple[str, int]) -> bool:
-        match (mtype):
-            case MsgType.DISCNT:
-                self.removeUser(self.getUserAddr(src))
-
-            case MsgType.FWDMSG:
-                assert(type(src) == str and type(dst) == str)
-                self.forwardMessage(src, dst, msg)
-
-            case MsgType.FWDFL:
-                assert(type(src) == str and type(dst) == str and type(msg) == str)
-                self.recieveFilePackage(src, dst, fnm = msg)
-
-            case MsgType.RGUSR:
-                assert(type(src) == socket.socket and type(dst) == str and type(msg) == str)
-                self.registerUser(src, username = dst, passwd = msg)
-
-            case _:
-                self.log(f"Unknown message type received from user `{src}`: `{mtype}`. Disconnecting.", logtype='warn')
-                return False
-
-        return True
 
     def interpretCommand(self, cmd, args):
         match (cmd):
@@ -319,6 +298,12 @@ class Servidor():
                 self.sendPackageUsr(MsgType.DISCNT, 'server', args[0], "kicked from server.")
                 self.log(f"Kicked {args[0]}.")
 
+            case "list":
+                """
+                Lists online users
+                """
+                self.log("Online users:", str(self.getOnlineUsers()))
+
             case _:
                 self.log(f"Comando não reconhecido: `{cmd}`", logtype='info')
 
@@ -327,7 +312,6 @@ class Servidor():
             client_socket: socket.socket,
             client_addr: tuple[str, int],
             user: str,
-            addr: str,
             pubkey: rsa.PublicKey,
     ) -> None:
         running = True
@@ -336,27 +320,35 @@ class Servidor():
             match (mtype):
                 case MsgType.DISCNT:
                     running = False
+
+                case MsgType.FWDMSG:
+                    assert(type(src) == str and type(dst) == str)
+                    self.forwardMessage(src, dst, msg)
+
                 case MsgType.FWDFL:
-                    #Receber o nome do arquivo e enviar para o dst
-                    running = self.interpretMessage(mtype, src, dst, msg)
+                    assert(type(src) == str and type(dst) == str and type(msg) == str)
+                    self.recieveFilePackage(src, dst, fnm = msg)
+
                 case MsgType.RGUSR:
                     self.registerUser(client_socket, username = dst, passwd = msg, pubkey=pubkey)
 
                 case MsgType.CKLG:
-                    self.authenticateClient(client_socket, dst, msg, addr, pubkey)
-                    #running = self.interpretMessage(mtype, client_socket, dst, msg)
+                    #self.checkUserCredentials(client_socket, dst, msg)
+                    self.authenticateClient(client_socket, dst, msg, client_addr, pubkey)
+
                 case _:
-                    running = self.interpretMessage(mtype, src, dst, msg)
+                    self.log(f"Unknown message type received from user `{src}`: `{mtype}`. Disconnecting.", logtype='warn')
+                    running = False
 
     def onClientConnect(self, client_socket: socket.socket, client_addr: tuple[str, int]):
         assert self.socket is not None, "Server is not ready to be receiving connections."
 
         self.log(f" >>> {client_addr} connected.")
 
-        user, addr, pubkey = self.connectClient(client_socket)
+        user, pubkey = self.connectClient(client_socket)
 
         try:
-            self.connectionLoop(client_socket, client_addr, user, addr, pubkey)
+            self.connectionLoop(client_socket, client_addr, user, pubkey)
             client_socket.close()
             self.removeUser(client_addr)
             self.log(f" <<< {client_addr} disconnected.")

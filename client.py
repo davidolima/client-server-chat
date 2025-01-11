@@ -137,7 +137,9 @@ class Cliente:
         file.close()  
 
     def getUsrPubKey(self, usr) -> rsa.PublicKey | None:
-        if usr not in self.online_users.keys():
+        if usr == 'server':
+            return self.server_pub_key
+        elif usr not in self.online_users.keys():
             return
         return self.online_users[usr]
 
@@ -156,8 +158,11 @@ class Cliente:
 
         dst_pubkey = None
         if encrypt:
-            dst_pubkey = self.getUsrPubKey(dst)
-            assert dst_pubkey is not None
+            if msg_type in (MsgType.RGUSR, MsgType.CKLG):
+                dst_pubkey = self.server_pub_key
+            else:
+                dst_pubkey = self.getUsrPubKey(dst)
+                assert dst_pubkey is not None
 
         enc_msg = Criptografia.packMessage(msg_type, self.username, dst, msg, dst_pubkey)
         try:
@@ -195,19 +200,11 @@ class Cliente:
         if total_received < PKG_SIZE:
             pkg += b'\0' * (PKG_SIZE - total_received)
 
-        #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
+        print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
         msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt and (self.priv_rsa_key is not None) else None)
         #print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
         return msg_type, src, dst, msg
-            
-    def checkUserCredentials(self, msg_type, username, passwd):
-        self.sendPackage(msg_type, username, passwd, encrypt=False)
-        mtype, _, _, msg = self.receivePackage(decrypt=False)
-        if mtype == MsgType.ACCEPT:
-            return True, msg
-        else:
-            return False, msg
-    
+
     def registerUser(self, username, passwd) -> str:
         self.sendPackage(MsgType.RGUSR, username, passwd)
         mtype, _, _, msg = self.receivePackage()
@@ -227,14 +224,14 @@ class Cliente:
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
         self.username = username.replace(' ', '_').replace('*','')
+        self.sendPackage(MsgType.CKLG, username, passwd, encrypt=True)
+        mtype, _, _, msg = self.receivePackage(decrypt=False)
+        if mtype == MsgType.ACCEPT:
+            print(f"[SERVER] {msg}")
+            return True
 
-        # Validate user credentials
-        sucess, retorno = self.checkUserCredentials(MsgType.CKLG, username, passwd)
-        if not sucess:
-            print("[Error]", retorno)
-            return False
-
-        return True
+        print(f"[ERRO DE LOGIN] {msg}")
+        return False
 
     def getPublicKey(self) -> rsa.PublicKey:
         return self.pub_rsa_key
