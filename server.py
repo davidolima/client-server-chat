@@ -166,9 +166,8 @@ class Servidor():
         success = False
         if self.checkUserCredentials(socket = socket, username = username, passwd = passwd):
             self.online_users[username] = (socket, addr, pubkey)
-            success = True
 
-        if success: # notify clients
+            # notify clients
             self.sendToAll(MsgType.SERVER, 'server', f"{username} se conectou!")
             self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
 
@@ -191,10 +190,12 @@ class Servidor():
 
     def removeUser(self, usr_addr):
         for k, v in self.online_users.items():
-            if v[1] == f"{usr_addr[0]}:{usr_addr[1]}":
+            print(v[1], usr_addr)
+            if v[1] == usr_addr:
                 self.online_users.pop(k)
                 break
 
+        print(self.getOnlineUsers(pubkeys=True))
         # notify clients
         self.sendToAll(MsgType.USRONL, 'server', str(self.getOnlineUsers(pubkeys=True)))
 
@@ -333,7 +334,6 @@ class Servidor():
                     self.registerUser(client_socket, username = dst, passwd = msg, pubkey=pubkey)
 
                 case MsgType.CKLG:
-                    #self.checkUserCredentials(client_socket, dst, msg)
                     self.authenticateClient(client_socket, dst, msg, client_addr, pubkey)
 
                 case _:
@@ -349,10 +349,6 @@ class Servidor():
 
         try:
             self.connectionLoop(client_socket, client_addr, user, pubkey)
-            client_socket.close()
-            self.removeUser(client_addr)
-            self.log(f" <<< {client_addr} disconnected.")
-            self.log(f"Online users: {self.getOnlineUsers()}")
 
         except Exception as e:
             self.log(f"Error handling client {client_addr}: {e}", logtype="warn")

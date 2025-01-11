@@ -200,14 +200,14 @@ class Cliente:
         if total_received < PKG_SIZE:
             pkg += b'\0' * (PKG_SIZE - total_received)
 
-        print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
+        #print(f"CLIENT RECEIVED {len(pkg)} BYTES:", pkg)
         msg_type, src, dst, msg = Criptografia.unpackMessage(pkg, self.priv_rsa_key if decrypt and (self.priv_rsa_key is not None) else None)
         #print(f"msg_type={msg_type} src={src} dst={dst} msg={msg}")
         return msg_type, src, dst, msg
 
     def registerUser(self, username, passwd) -> str:
-        self.sendPackage(MsgType.RGUSR, username, passwd)
-        mtype, _, _, msg = self.receivePackage()
+        self.sendPackage(MsgType.RGUSR, username, passwd, encrypt=True)
+        mtype, _, _, msg = self.receivePackage(decrypt=True)
         if mtype == MsgType.ACCEPT:
             return ''
         else:
