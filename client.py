@@ -121,7 +121,8 @@ class Cliente:
 
     def sendFilePackage(self, dst: str, filename: str):
         if not self.isConnected():
-            warnings.warn("Not connected to server.")
+            warnings.warn("Not connected to server. Trying to reconnect.")
+            self.reconnect()
             return (MsgType.ERRMSG, '', '', '')
 
         self.sendPackage(MsgType.FWDFL, dst, f'received_{os.path.basename(filename)}')
@@ -157,7 +158,8 @@ class Cliente:
         Baseado em: https://docs.python.org/3/howto/sockets.html
         """
         if not self.isConnected():
-            warnings.warn("Not connected to server.")
+            warnings.warn("Not connected to server. Trying to reconnect.")
+            self.reconnect()
             return
         assert(self.socket is not None)  # NOTE: Just so LSP works properly
 
@@ -229,7 +231,8 @@ class Cliente:
         The return value determines if the attempt was successful.
         """
         if not self.isConnected():
-            warnings.warn("Not connected to server.")
+            warnings.warn("Not connected to server. Trying to reconnect.")
+            self.reconnect()
             return False
         assert(self.socket is not None) # NOTE: Just so LSP works properly
 
